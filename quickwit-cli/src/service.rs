@@ -38,49 +38,47 @@ pub fn build_service_command<'a>() -> Command<'a> {
         .subcommand(
             Command::new("run")
             .about("Starts a service. Currently, the only services available are `indexer` and `searcher`.")
-            .subcommand(
-                Command::new("indexer")
-                    .about("Starts an indexing process, aka an `indexer`.")
-                    .args(&[
-                        arg!(--config <CONFIG> "Quickwit config file").env("QW_CONFIG"),
-                        arg!(--"data-dir" <DATA_DIR> "Where data is persisted. Override data-dir defined in config file, default is `./qwdata`.")
+            .args(&[
+                arg!(--config).env("QW_CONFIG"),
+                arg!(--"data-dir" <DATA_DIR> "Where data is persisted. Override data-dir defined in config file, default is `./qwdata`.")
                             .env("QW_DATA_DIR")
                             .required(false),
-                        arg!(--indexes <INDEX_ID> "IDs of the indexes to run the indexer for.")
-                            .multiple_values(true),
-                    ])
-                )
-            .subcommand(
-                Command::new("searcher")
-                    .about("Starts a search process, aka a `searcher`.")
-                    .args(&[
-                        arg!(--config <CONFIG> "Quickwit config file").env("QW_CONFIG"),
-                        arg!(--"data-dir" <DATA_DIR> "Where data is persisted. Override data-dir defined in config file, default is `./qwdata`.")
-                            .env("QW_DATA_DIR")
-                            .required(false),
-                    ])
-                )
-            )
+                arg!(--"service" <SERVICE> "Services (searcher|indexer) to run. If unspecified run both `searcher` and `indexer`.")
+                    .required(false)
+            ])
+        )
         .arg_required_else_help(true)
 }
 
 #[derive(Debug, PartialEq)]
-pub struct RunIndexerArgs {
+pub struct ServiceCliCommand {
     pub config_uri: Uri,
     pub data_dir_path: Option<PathBuf>,
-    pub index_ids: Vec<String>,
+    pub service: Option<Service>
 }
 
-#[derive(Debug, PartialEq)]
-pub struct RunSearcherArgs {
-    pub config_uri: Uri,
-    pub data_dir_path: Option<PathBuf>,
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub enum Service {
+    Indexer,
+    Searcher
 }
 
-#[derive(Debug, PartialEq)]
-pub enum ServiceCliCommand {
-    RunSearcher(RunSearcherArgs),
-    RunIndexer(RunIndexerArgs),
+impl TryFrom<&str> for Service {
+    type Error = anyhow::Error;
+
+    fn try_from(service_str: &str) -> Result<Self, Self::Error> {
+        match service_str{
+            "indexer" => {
+                Ok(Service::Indexer)
+            }
+            "searcher" => {
+                Ok(Service::Searcher)
+            }
+            _ => {
+                bail!("Service `{service_str}` unknown");
+            }
+        }
+    }
 }
 
 impl ServiceCliCommand {
@@ -95,97 +93,83 @@ impl ServiceCliCommand {
     }
 
     fn parse_run_args(matches: &ArgMatches) -> anyhow::Result<Self> {
-        let (subcommand, submatches) = matches
-            .subcommand()
-            .ok_or_else(|| anyhow::anyhow!("Failed to parse sub-matches."))?;
-        match subcommand {
-            "searcher" => Self::parse_searcher_args(submatches),
-            "indexer" => Self::parse_indexer_args(submatches),
-            _ => bail!(
-                "Service `{}` is not implemented. Available services are `indexer` and `searcher`.",
-                subcommand
-            ),
-        }
-    }
-
-    fn parse_searcher_args(matches: &ArgMatches) -> anyhow::Result<Self> {
         let config_uri = matches
             .value_of("config")
             .map(Uri::try_new)
             .expect("`config` is a required arg.")?;
-        let data_dir = matches.value_of("data-dir").map(PathBuf::from);
-        Ok(ServiceCliCommand::RunSearcher(RunSearcherArgs {
+        let data_dir_path = matches.value_of("data-dir").map(PathBuf::from);
+        let service: Option<Service> =
+            if let Some(service_str) = matches.value_of("service") {
+                let service = Service::try_from(service_str)?;
+                Some(service)
+            } else {
+                None
+            };
+        Ok(ServiceCliCommand {
             config_uri,
-            data_dir_path: data_dir,
-        }))
+            data_dir_path,
+            service
+        })
     }
 
-    fn parse_indexer_args(matches: &ArgMatches) -> anyhow::Result<Self> {
-        let config_uri = matches
-            .value_of("config")
-            .map(Uri::try_new)
-            .expect("`config` is a required arg.")?;
-        let data_dir = matches.value_of("data-dir").map(PathBuf::from);
-        let index_ids = matches
-            .values_of("indexes")
-            .expect("`indexes` is a required arg.")
-            .map(String::from)
-            .collect();
-        Ok(ServiceCliCommand::RunIndexer(RunIndexerArgs {
-            config_uri,
-            index_ids,
-            data_dir_path: data_dir,
-        }))
-    }
+    pub async fn execute(&self) -> anyhow::Result<()> {
+        debug!(args = ?self, "run-service");
+        let service_str = self.service.map(|service| format!("{service:?}"))
+            .unwrap_or_else(|| "all".to_string());
+        let telemetry_event = TelemetryEvent::RunService(service_str);
+        quickwit_telemetry::send_telemetry_event(telemetry_event).await;
 
-    pub async fn execute(self) -> anyhow::Result<()> {
-        match self {
-            Self::RunSearcher(args) => run_searcher_cli(args).await,
-            Self::RunIndexer(args) => run_indexer_cli(args).await,
-        }
+        let config = load_quickwit_config(&self.config_uri, self.data_dir_path.clone()).await?;
+        let metastore = quickwit_metastore_uri_resolver()
+            .resolve(&config.metastore_uri())
+            .await?;
+        let storage_resolver = quickwit_storage_uri_resolver().clone();
+
+        Ok(())
+
     }
 }
 
-async fn run_indexer_cli(args: RunIndexerArgs) -> anyhow::Result<()> {
-    debug!(args = ?args, "run-indexer");
-    let telemetry_event = TelemetryEvent::RunService("indexer".to_string());
-    quickwit_telemetry::send_telemetry_event(telemetry_event).await;
+// async fn run_indexer_cli(args: RunIndexerArgs) -> anyhow::Result<()> {
+//     debug!(args = ?args, "run-indexer");
+//     let telemetry_event = TelemetryEvent::RunService("indexer".to_string());
+//     quickwit_telemetry::send_telemetry_event(telemetry_event).await;
 
-    let config = load_quickwit_config(&args.config_uri, args.data_dir_path).await?;
-    let metastore = quickwit_metastore_uri_resolver()
-        .resolve(&config.metastore_uri())
-        .await?;
-    let storage_resolver = quickwit_storage_uri_resolver().clone();
-    let client = IndexingServer::spawn(
-        config.data_dir_path,
-        config.indexer_config,
-        metastore,
-        storage_resolver,
-    );
-    for index_id in args.index_ids {
-        client.spawn_pipelines(index_id).await?;
-    }
-    let (exit_status, _) = client.join_server().await;
-    if exit_status.is_success() {
-        bail!(exit_status)
-    }
-    Ok(())
-}
+//     let config = load_quickwit_config(args.config_uri, args.data_dir_path).await?;
+//     let metastore = quickwit_metastore_uri_resolver()
+//         .resolve(&config.metastore_uri())
+//         .await?;
+//     let storage_resolver = quickwit_storage_uri_resolver().clone();
+//     let client = IndexingServer::spawn(
+//         config.data_dir_path,
+//         config.indexer_config,
+//         metastore,
+//         storage_resolver,
+//     );
+//     for index_id in args.index_ids {
+//         client.spawn_pipelines(index_id).await?;
+//     }
+//     let (exit_status, _) = client.join_server().await;
+//     if exit_status.is_success() {
+//         bail!(exit_status)
+//     }
+//     Ok(())
+// }
 
-async fn run_searcher_cli(args: RunSearcherArgs) -> anyhow::Result<()> {
-    debug!(args = ?args, "run-searcher");
-    let telemetry_event = TelemetryEvent::RunService("searcher".to_string());
-    quickwit_telemetry::send_telemetry_event(telemetry_event).await;
+// async fn run_searcher_cli(args: RunSearcherArgs) -> anyhow::Result<()> {
+//     debug!(args = ?args, "run-searcher");
+//     let telemetry_event = TelemetryEvent::RunService("searcher".to_string());
+//     quickwit_telemetry::send_telemetry_event(telemetry_event).await;
 
-    let config = load_quickwit_config(&args.config_uri, args.data_dir_path).await?;
-    let metastore_uri_resolver = quickwit_metastore_uri_resolver();
-    let metastore = metastore_uri_resolver
-        .resolve(&config.metastore_uri())
-        .await?;
-    run_checklist(vec![("metastore", metastore.check_connectivity().await)]);
-    run_searcher(config, metastore).await?;
-    Ok(())
-}
+//     let config = load_quickwit_config(args.config_uri, args.data_dir_path).await?;
+//     let metastore_uri_resolver = quickwit_metastore_uri_resolver();
+//     let metastore = metastore_uri_resolver
+//         .resolve(&config.metastore_uri())
+//         .await?;
+//     run_checklist(vec![("metastore", metastore.check_connectivity().await)]);
+//     run_searcher(config, metastore).await?;
+//     Ok(())
+// }
 
 #[cfg(test)]
 mod tests {
