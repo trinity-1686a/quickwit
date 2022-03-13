@@ -38,13 +38,14 @@ use tantivy::{
 };
 use tracing::{debug, info, info_span, Span};
 
+use crate::actors::Packager;
 use crate::controlled_directory::ControlledDirectory;
 use crate::merge_policy::MergeOperation;
 use crate::models::{IndexedSplit, IndexedSplitBatch, MergeScratch, ScratchDirectory};
 
 pub struct MergeExecutor {
     index_id: String,
-    merge_packager_mailbox: Mailbox<IndexedSplitBatch>,
+    merge_packager_mailbox: Mailbox<Packager>,
     timestamp_field_name: Option<String>,
     demux_field_name: Option<String>,
     min_demuxed_split_num_docs: usize,
@@ -252,7 +253,7 @@ fn create_demux_output_directory(
 impl MergeExecutor {
     pub fn new(
         index_id: String,
-        merge_packager_mailbox: Mailbox<IndexedSplitBatch>,
+        merge_packager_mailbox: Mailbox<Packager>,
         timestamp_field_name: Option<String>,
         demux_field_name: Option<String>,
         min_demuxed_split_num_docs: usize,

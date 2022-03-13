@@ -31,6 +31,7 @@ use tantivy::schema::{Field, Value};
 use tantivy::{Document, IndexBuilder, IndexSettings, IndexSortByField};
 use tracing::{info, warn};
 
+use crate::actors::Packager;
 use crate::models::{
     IndexedSplit, IndexedSplitBatch, IndexerMessage, IndexingDirectory, RawDocBatch,
 };
@@ -225,7 +226,7 @@ impl IndexerState {
 
 pub struct Indexer {
     indexer_state: IndexerState,
-    packager_mailbox: Mailbox<IndexedSplitBatch>,
+    packager_mailbox: Mailbox<Packager>,
     current_split_opt: Option<IndexedSplit>,
     counters: IndexerCounters,
 }
@@ -306,7 +307,7 @@ impl Indexer {
         doc_mapper: Arc<dyn DocMapper>,
         indexing_directory: IndexingDirectory,
         indexing_settings: IndexingSettings,
-        packager_mailbox: Mailbox<IndexedSplitBatch>,
+        packager_mailbox: Mailbox<Packager>,
     ) -> Self {
         let schema = doc_mapper.schema();
         let timestamp_field_opt = doc_mapper.timestamp_field(&schema);

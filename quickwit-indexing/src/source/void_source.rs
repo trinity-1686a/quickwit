@@ -21,7 +21,7 @@ use async_trait::async_trait;
 use quickwit_actors::{ActorExitStatus, Mailbox, HEARTBEAT};
 use quickwit_config::VoidSourceParams;
 
-use crate::models::IndexerMessage;
+use crate::actors::Indexer;
 use crate::source::{Source, SourceContext, TypedSourceFactory};
 
 pub struct VoidSource;
@@ -30,7 +30,7 @@ pub struct VoidSource;
 impl Source for VoidSource {
     async fn emit_batches(
         &mut self,
-        _: &Mailbox<IndexerMessage>,
+        _: &Mailbox<Indexer>,
         _: &SourceContext,
     ) -> Result<(), ActorExitStatus> {
         tokio::time::sleep(HEARTBEAT / 2).await;

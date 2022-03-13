@@ -96,7 +96,7 @@ impl AsyncActor for PingReceiverAsyncActor {
 #[derive(Default)]
 pub struct PingerAsyncSenderActor {
     count: usize,
-    peers: HashSet<Mailbox<<PingReceiverSyncActor as Actor>::Message>>,
+    peers: HashSet<Mailbox<PingReceiverSyncActor>>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -107,7 +107,7 @@ pub struct SenderState {
 
 #[derive(Debug, Clone)]
 pub enum SenderMessage {
-    AddPeer(Mailbox<Ping>),
+    AddPeer(Mailbox<PingReceiverSyncActor>),
     Ping,
 }
 
@@ -527,7 +527,7 @@ impl SyncActor for SummingActor {
 #[derive(Default)]
 struct SpawningActor {
     res: u64,
-    handle_opt: Option<(Mailbox<u64>, ActorHandle<SummingActor>)>,
+    handle_opt: Option<(Mailbox<SummingActor>, ActorHandle<SummingActor>)>,
 }
 
 impl Actor for SpawningActor {

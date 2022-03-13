@@ -32,10 +32,10 @@ use quickwit_actors::{Actor, ActorContext, ActorExitStatus, AsyncActor, Mailbox,
 use quickwit_metastore::{Metastore, SplitMetadata};
 use quickwit_storage::SplitPayloadBuilder;
 use tantivy::chrono::Utc;
-use tokio::sync::oneshot::Receiver;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::{info, info_span, warn, Instrument, Span};
 
+use crate::actors::Publisher;
 use crate::models::{PackagedSplit, PackagedSplitBatch, PublishOperation, PublisherMessage};
 use crate::split_store::IndexingSplitStore;
 
@@ -45,7 +45,7 @@ pub struct Uploader {
     actor_name: &'static str,
     metastore: Arc<dyn Metastore>,
     index_storage: IndexingSplitStore,
-    publisher_mailbox: Mailbox<Receiver<PublisherMessage>>,
+    publisher_mailbox: Mailbox<Publisher>,
     concurrent_upload_permits: Arc<Semaphore>,
     counters: UploaderCounters,
 }
@@ -55,7 +55,7 @@ impl Uploader {
         actor_name: &'static str,
         metastore: Arc<dyn Metastore>,
         index_storage: IndexingSplitStore,
-        publisher_mailbox: Mailbox<Receiver<PublisherMessage>>,
+        publisher_mailbox: Mailbox<Publisher>,
     ) -> Uploader {
         Uploader {
             actor_name,

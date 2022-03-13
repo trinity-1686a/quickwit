@@ -23,7 +23,7 @@ use quickwit_actors::{Actor, ActorContext, ActorExitStatus, Mailbox, QueueCapaci
 use quickwit_metastore::SplitMetadata;
 use tracing::info;
 
-use crate::merge_policy::MergeOperation;
+use crate::actors::MergeSplitDownloader;
 use crate::models::MergePlannerMessage;
 use crate::MergePolicy;
 
@@ -33,7 +33,7 @@ pub struct MergePlanner {
     /// yet and can be candidate to merge and demux operations.
     young_splits: Vec<SplitMetadata>,
     merge_policy: Arc<dyn MergePolicy>,
-    merge_split_downloader_mailbox: Mailbox<MergeOperation>,
+    merge_split_downloader_mailbox: Mailbox<MergeSplitDownloader>,
 }
 
 impl Actor for MergePlanner {
@@ -82,7 +82,7 @@ impl MergePlanner {
     pub fn new(
         young_splits: Vec<SplitMetadata>,
         merge_policy: Arc<dyn MergePolicy>,
-        merge_split_downloader_mailbox: Mailbox<MergeOperation>,
+        merge_split_downloader_mailbox: Mailbox<MergeSplitDownloader>,
     ) -> MergePlanner {
         MergePlanner {
             young_splits,
@@ -113,6 +113,7 @@ mod tests {
 
     use super::*;
     use crate::actors::merge_executor::{demux_virtual_split, VirtualSplit};
+    use crate::merge_policy::MergeOperation;
     use crate::{new_split_id, StableMultitenantWithTimestampMergePolicy};
 
     fn merged_timestamp(splits: &[SplitMetadata]) -> Option<RangeInclusive<i64>> {

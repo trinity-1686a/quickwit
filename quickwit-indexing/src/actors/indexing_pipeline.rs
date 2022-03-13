@@ -240,10 +240,7 @@ impl IndexingPipeline {
             .await?;
 
         let (merge_planner_mailbox, merge_planner_inbox) =
-            create_mailbox::<<MergePlanner as Actor>::Message>(
-                "MergePlanner".to_string(),
-                QueueCapacity::Unbounded,
-            );
+            create_mailbox::<MergePlanner>("MergePlanner".to_string(), QueueCapacity::Unbounded);
 
         // Garbage colletor
         let garbage_collector = GarbageCollector::new(

@@ -44,7 +44,7 @@ pub struct IndexingPipelineId {
 
 pub struct IndexingServerClient {
     universe: Universe,
-    mailbox: Mailbox<IndexingServerMessage>,
+    mailbox: Mailbox<IndexingServer>,
     handle: ActorHandle<IndexingServer>,
 }
 

@@ -80,7 +80,7 @@ pub trait AsyncActor: Actor + Sized {
 pub(crate) fn spawn_async_actor<A: AsyncActor>(
     actor: A,
     ctx: ActorContext<A>,
-    inbox: Inbox<A::Message>,
+    inbox: Inbox<A>,
 ) -> ActorHandle<A> {
     debug!(actor_id = %ctx.actor_instance_id(), "spawn-async");
     let (state_tx, state_rx) = watch::channel(actor.observable_state());
@@ -115,10 +115,10 @@ where
     tokio::spawn(task)
 }
 
-async fn process_msg<A: Actor + AsyncActor>(
+async fn process_msg<A: AsyncActor>(
     actor: &mut A,
     msg_id: u64,
-    inbox: &mut Inbox<A::Message>,
+    inbox: &mut Inbox<A>,
     ctx: &mut ActorContext<A>,
     state_tx: &Sender<A::ObservableState>,
 ) -> Option<ActorExitStatus> {
@@ -165,7 +165,7 @@ async fn process_msg<A: Actor + AsyncActor>(
 
 async fn async_actor_loop<A: AsyncActor>(
     actor: A,
-    mut inbox: Inbox<A::Message>,
+    mut inbox: Inbox<A>,
     mut ctx: ActorContext<A>,
     state_tx: Sender<A::ObservableState>,
 ) -> ActorExitStatus {

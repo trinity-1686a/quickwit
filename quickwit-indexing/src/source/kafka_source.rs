@@ -43,6 +43,7 @@ use serde_json::json;
 use tokio::task::spawn_blocking;
 use tracing::{debug, info, warn};
 
+use crate::actors::Indexer;
 use crate::models::RawDocBatch;
 use crate::source::{IndexerMessage, Source, SourceContext, TypedSourceFactory};
 
@@ -173,7 +174,7 @@ impl KafkaSource {
 impl Source for KafkaSource {
     async fn emit_batches(
         &mut self,
-        batch_sink: &Mailbox<IndexerMessage>,
+        batch_sink: &Mailbox<Indexer>,
         ctx: &SourceContext,
     ) -> Result<(), ActorExitStatus> {
         let mut docs = Vec::new();

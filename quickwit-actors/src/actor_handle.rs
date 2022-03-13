@@ -279,7 +279,7 @@ impl<A: Actor> ActorHandle<A> {
         }
     }
 
-    pub fn mailbox(&self) -> &Mailbox<A::Message> {
+    pub fn mailbox(&self) -> &Mailbox<A> {
         self.actor_context.mailbox()
     }
 }

@@ -32,7 +32,7 @@ use crate::actor_state::{ActorState, AtomicState};
 use crate::channel_with_priority::Priority;
 use crate::mailbox::{Command, CommandOrMessage};
 use crate::progress::{Progress, ProtectedZoneGuard};
-use crate::scheduler::{Callback, SchedulerMessage};
+use crate::scheduler::{Callback, Scheduler, SchedulerMessage};
 use crate::spawn_builder::SpawnBuilder;
 use crate::{AsyncActor, KillSwitch, Mailbox, QueueCapacity, SendError, SyncActor};
 
@@ -158,7 +158,7 @@ pub trait Actor: Send + Sync + Sized + 'static {
 
 // TODO hide all of this public stuff
 pub struct ActorContext<A: Actor> {
-    inner: Arc<ActorContextInner<A::Message>>,
+    inner: Arc<ActorContextInner<A>>,
     phantom_data: PhantomData<A>,
 }
 
@@ -172,26 +172,26 @@ impl<A: Actor> Clone for ActorContext<A> {
 }
 
 impl<A: Actor> Deref for ActorContext<A> {
-    type Target = ActorContextInner<A::Message>;
+    type Target = ActorContextInner<A>;
 
     fn deref(&self) -> &Self::Target {
         self.inner.as_ref()
     }
 }
 
-pub struct ActorContextInner<Message> {
-    self_mailbox: Mailbox<Message>,
+pub struct ActorContextInner<A: Actor> {
+    self_mailbox: Mailbox<A>,
     progress: Progress,
     kill_switch: KillSwitch,
-    scheduler_mailbox: Mailbox<SchedulerMessage>,
+    scheduler_mailbox: Mailbox<Scheduler>,
     actor_state: AtomicState,
 }
 
 impl<A: Actor> ActorContext<A> {
     pub(crate) fn new(
-        self_mailbox: Mailbox<A::Message>,
+        self_mailbox: Mailbox<A>,
         kill_switch: KillSwitch,
-        scheduler_mailbox: Mailbox<SchedulerMessage>,
+        scheduler_mailbox: Mailbox<Scheduler>,
     ) -> Self {
         ActorContext {
             inner: ActorContextInner {
@@ -206,7 +206,7 @@ impl<A: Actor> ActorContext<A> {
         }
     }
 
-    pub fn mailbox(&self) -> &Mailbox<A::Message> {
+    pub fn mailbox(&self) -> &Mailbox<A> {
         &self.self_mailbox
     }
 
@@ -303,10 +303,10 @@ fn should_activate_kill_switch(exit_status: &ActorExitStatus) -> bool {
 
 impl<A: Actor + SyncActor> ActorContext<A> {
     /// Blocking version version of `send_message`. See `.send_message(...)`.
-    pub fn send_message_blocking<M: fmt::Debug>(
+    pub fn send_message_blocking<Dest: Actor>(
         &self,
-        mailbox: &Mailbox<M>,
-        msg: M,
+        mailbox: &Mailbox<Dest>,
+        msg: Dest::Message,
     ) -> Result<(), crate::SendError> {
         let _guard = self.protect_zone();
         debug!(from=%self.self_mailbox.actor_instance_id(), to=%mailbox.actor_instance_id(), msg=?msg, "send");
@@ -314,9 +314,9 @@ impl<A: Actor + SyncActor> ActorContext<A> {
     }
 
     /// Blocking version of `send_exit_with_success`. See `send_exit_with_success`.
-    pub fn send_exit_with_success_blocking<M>(
+    pub fn send_exit_with_success_blocking(
         &self,
-        mailbox: &Mailbox<M>,
+        mailbox: &Mailbox<A>,
     ) -> Result<(), crate::SendError> {
         let _guard = self.protect_zone();
         debug!(from=%self.self_mailbox.actor_instance_id(), to=%mailbox.actor_instance_id(), "success");
@@ -366,10 +366,10 @@ impl<A: Actor + AsyncActor> ActorContext<A> {
     /// This method hides logic to prevent an actor from being identified
     /// as frozen if the destination actor channel is saturated, and we
     /// are simply experiencing back pressure.
-    pub async fn send_message<M: fmt::Debug>(
+    pub async fn send_message<Dest: Actor>(
         &self,
-        mailbox: &Mailbox<M>,
-        msg: M,
+        mailbox: &Mailbox<Dest>,
+        msg: Dest::Message,
     ) -> Result<(), crate::SendError> {
         let _guard = self.protect_zone();
         debug!(from=%self.self_mailbox.actor_instance_id(), send=%mailbox.actor_instance_id(), msg=?msg);
@@ -380,9 +380,9 @@ impl<A: Actor + AsyncActor> ActorContext<A> {
     ///
     /// The message is queued like any regular message, so that pending messages will be processed
     /// first.
-    pub async fn send_exit_with_success<M>(
+    pub async fn send_exit_with_success<Dest: Actor>(
         &self,
-        mailbox: &Mailbox<M>,
+        mailbox: &Mailbox<Dest>,
     ) -> Result<(), crate::SendError> {
         let _guard = self.protect_zone();
         debug!(from=%self.self_mailbox.actor_instance_id(), to=%mailbox.actor_instance_id(), "success");

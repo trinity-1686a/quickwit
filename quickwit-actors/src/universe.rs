@@ -31,7 +31,7 @@ use crate::{Actor, KillSwitch, Mailbox, QueueCapacity, Scheduler};
 ///
 /// In particular, unit test all have their own universe and hence can be executed in parallel.
 pub struct Universe {
-    scheduler_mailbox: Mailbox<<Scheduler as Actor>::Message>,
+    scheduler_mailbox: Mailbox<Scheduler>,
     // This killswitch is used for the scheduler, and will be used by default for all spawned
     // actors.
     kill_switch: KillSwitch,
@@ -85,19 +85,19 @@ impl Universe {
     }
 
     /// `async` version of `send_message`
-    pub async fn send_message<M>(
+    pub async fn send_message<A: Actor>(
         &self,
-        mailbox: &Mailbox<M>,
-        message: M,
+        mailbox: &Mailbox<A>,
+        message: A::Message,
     ) -> Result<(), crate::SendError> {
         mailbox.send_message(message).await
     }
 
     /// Inform an actor to process pending message and then stop processing new messages
     /// and exit successfully.
-    pub async fn send_exit_with_success<M>(
+    pub async fn send_exit_with_success<A: Actor>(
         &self,
-        mailbox: &Mailbox<M>,
+        mailbox: &Mailbox<A>,
     ) -> Result<(), crate::SendError> {
         mailbox
             .send_with_priority(

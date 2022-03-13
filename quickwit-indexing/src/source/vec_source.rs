@@ -23,6 +23,7 @@ use quickwit_config::VecSourceParams;
 use quickwit_metastore::checkpoint::{CheckpointDelta, PartitionId, Position, SourceCheckpoint};
 use tracing::info;
 
+use crate::actors::Indexer;
 use crate::models::{IndexerMessage, RawDocBatch};
 use crate::source::{Source, SourceContext, TypedSourceFactory};
 
@@ -65,7 +66,7 @@ fn position_from_offset(offset: usize) -> Position {
 impl Source for VecSource {
     async fn emit_batches(
         &mut self,
-        batch_sink: &Mailbox<IndexerMessage>,
+        batch_sink: &Mailbox<Indexer>,
         ctx: &SourceContext,
     ) -> Result<(), ActorExitStatus> {
         let line_docs: Vec<String> = self.params.items[self.next_item_idx..]

@@ -70,7 +70,7 @@ pub trait SyncActor: Actor + Sized {
 pub(crate) fn spawn_sync_actor<A: SyncActor>(
     actor: A,
     ctx: ActorContext<A>,
-    inbox: Inbox<A::Message>,
+    inbox: Inbox<A>,
 ) -> ActorHandle<A> {
     let (state_tx, state_rx) = watch::channel(actor.observable_state());
     let ctx_clone = ctx.clone();
@@ -112,7 +112,7 @@ where
 fn process_msg<A: Actor + SyncActor>(
     actor: &mut A,
     msg_id: u64,
-    inbox: &mut Inbox<A::Message>,
+    inbox: &mut Inbox<A>,
     ctx: &mut ActorContext<A>,
     state_tx: &Sender<A::ObservableState>,
 ) -> Option<ActorExitStatus> {
@@ -158,7 +158,7 @@ fn process_msg<A: Actor + SyncActor>(
 
 fn sync_actor_loop<A: SyncActor>(
     actor: A,
-    mut inbox: Inbox<A::Message>,
+    mut inbox: Inbox<A>,
     mut ctx: ActorContext<A>,
     state_tx: Sender<A::ObservableState>,
 ) -> ActorExitStatus {

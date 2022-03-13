@@ -40,6 +40,7 @@ const MAX_VALUES_PER_TAG_FIELD: usize = if cfg!(any(test, feature = "testsuite")
 };
 
 use super::NamedField;
+use crate::actors::Uploader;
 use crate::models::{
     IndexedSplit, IndexedSplitBatch, PackagedSplit, PackagedSplitBatch, ScratchDirectory,
 };
@@ -57,7 +58,7 @@ use crate::models::{
 /// The split format is described in `internals/split-format.md`
 pub struct Packager {
     actor_name: &'static str,
-    uploader_mailbox: Mailbox<PackagedSplitBatch>,
+    uploader_mailbox: Mailbox<Uploader>,
     /// List of tag fields ([`Vec<NamedField>`]) defined in the index config.
     tag_fields: Vec<NamedField>,
 }
@@ -66,7 +67,7 @@ impl Packager {
     pub fn new(
         actor_name: &'static str,
         tag_fields: Vec<NamedField>,
-        uploader_mailbox: Mailbox<PackagedSplitBatch>,
+        uploader_mailbox: Mailbox<Uploader>,
     ) -> Packager {
         Packager {
             actor_name,

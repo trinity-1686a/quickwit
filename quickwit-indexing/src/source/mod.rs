@@ -60,8 +60,8 @@
 mod file_source;
 #[cfg(feature = "kafka")]
 mod kafka_source;
-#[cfg(feature = "kinesis")]
-mod kinesis;
+// #[cfg(feature = "kinesis")]
+// mod kinesis;
 mod source_factory;
 mod vec_source;
 mod void_source;
@@ -81,7 +81,7 @@ pub use source_factory::{SourceFactory, SourceLoader, TypedSourceFactory};
 pub use vec_source::{VecSource, VecSourceFactory};
 pub use void_source::{VoidSource, VoidSourceFactory};
 
-use crate::models::IndexerMessage;
+use crate::actors::Indexer;
 
 /// Reserved source id used for the CLI ingest command.
 pub const INGEST_SOURCE_ID: &str = ".cli-ingest-source";
@@ -124,7 +124,7 @@ pub trait Source: Send + Sync + 'static {
     /// In that case, `batch_sink` will block.
     async fn emit_batches(
         &mut self,
-        batch_sink: &Mailbox<IndexerMessage>,
+        batch_sink: &Mailbox<Indexer>,
         ctx: &SourceContext,
     ) -> Result<(), ActorExitStatus>;
 
@@ -153,7 +153,7 @@ pub trait Source: Send + Sync + 'static {
 /// It mostly takes care of running a loop calling `emit_batches(...)`.
 pub struct SourceActor {
     pub source: Box<dyn Source>,
-    pub batch_sink: Mailbox<IndexerMessage>,
+    pub batch_sink: Mailbox<Indexer>,
 }
 
 /// The goal of this struct is simply to prevent the construction of a Loop object.

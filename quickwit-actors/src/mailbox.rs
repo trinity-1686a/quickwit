@@ -25,7 +25,7 @@ use std::sync::Arc;
 use tokio::sync::oneshot;
 
 use crate::channel_with_priority::{Priority, Receiver, Sender};
-use crate::{QueueCapacity, RecvError, SendError};
+use crate::{Actor, QueueCapacity, RecvError, SendError};
 
 /// A mailbox is the object that makes it possible to send a message
 /// to an actor.
@@ -43,11 +43,11 @@ use crate::{QueueCapacity, RecvError, SendError};
 ///
 /// If all mailboxes are dropped, the actor will process all of the pending messages
 /// and gracefully exit with `ActorExitStatus::Success`.
-pub struct Mailbox<Message> {
-    pub(crate) inner: Arc<Inner<Message>>,
+pub struct Mailbox<A: Actor> {
+    pub(crate) inner: Arc<Inner<A>>,
 }
 
-impl<Message> Clone for Mailbox<Message> {
+impl<A: Actor> Clone for Mailbox<A> {
     fn clone(&self) -> Self {
         Mailbox {
             inner: self.inner.clone(),
@@ -55,19 +55,19 @@ impl<Message> Clone for Mailbox<Message> {
     }
 }
 
-impl<Message> Mailbox<Message> {
+impl<A: Actor> Mailbox<A> {
     pub(crate) fn is_last_mailbox(&self) -> bool {
         Arc::strong_count(&self.inner) == 1
     }
 }
 
-pub enum CommandOrMessage<Message> {
-    Message(Message),
+pub enum CommandOrMessage<A: Actor> {
+    Message(A::Message),
     Command(Command),
 }
 
-impl<Message> CommandOrMessage<Message> {
-    pub fn message(self) -> Option<Message> {
+impl<A: Actor> CommandOrMessage<A> {
+    pub fn message(self) -> Option<A::Message> {
         match self {
             CommandOrMessage::Message(message) => Some(message),
             CommandOrMessage::Command(_) => None,
@@ -82,14 +82,14 @@ impl<Message> CommandOrMessage<Message> {
     }
 }
 
-impl<Message> From<Command> for CommandOrMessage<Message> {
+impl<A: Actor> From<Command> for CommandOrMessage<A> {
     fn from(cmd: Command) -> Self {
         CommandOrMessage::Command(cmd)
     }
 }
 
-pub(crate) struct Inner<Message> {
-    pub(crate) tx: Sender<CommandOrMessage<Message>>,
+pub(crate) struct Inner<A: Actor> {
+    pub(crate) tx: Sender<CommandOrMessage<A>>,
     instance_id: String,
 }
 
@@ -172,34 +172,34 @@ impl fmt::Debug for Command {
     }
 }
 
-impl<Message: fmt::Debug> fmt::Debug for Mailbox<Message> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl<A: Actor> fmt::Debug for Mailbox<A> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Mailbox({})", self.actor_instance_id())
     }
 }
 
-impl<Message> Hash for Mailbox<Message> {
+impl<A: Actor> Hash for Mailbox<A> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.inner.instance_id.hash(state)
     }
 }
 
-impl<Message> PartialEq for Mailbox<Message> {
+impl<A: Actor> PartialEq for Mailbox<A> {
     fn eq(&self, other: &Self) -> bool {
         self.inner.instance_id.eq(&other.inner.instance_id)
     }
 }
 
-impl<Message> Eq for Mailbox<Message> {}
+impl<A: Actor> Eq for Mailbox<A> {}
 
-impl<Message> Mailbox<Message> {
+impl<A: Actor> Mailbox<A> {
     pub fn actor_instance_id(&self) -> &str {
         &self.inner.instance_id
     }
 
     pub(crate) async fn send_with_priority(
         &self,
-        cmd_or_msg: CommandOrMessage<Message>,
+        cmd_or_msg: CommandOrMessage<A>,
         priority: Priority,
     ) -> Result<(), SendError> {
         self.inner.tx.send(cmd_or_msg, priority).await
@@ -207,7 +207,7 @@ impl<Message> Mailbox<Message> {
 
     pub(crate) fn send_with_priority_blocking(
         &self,
-        cmd_or_msg: CommandOrMessage<Message>,
+        cmd_or_msg: CommandOrMessage<A>,
         priority: Priority,
     ) -> Result<(), SendError> {
         self.inner.tx.send_blocking(cmd_or_msg, priority)
@@ -216,14 +216,14 @@ impl<Message> Mailbox<Message> {
     /// SendError is returned if the actor has already exited.
     ///
     /// (See also [Self::send_blocking()])
-    pub(crate) async fn send_message(&self, msg: Message) -> Result<(), SendError> {
+    pub(crate) async fn send_message(&self, msg: A::Message) -> Result<(), SendError> {
         self.send_with_priority(CommandOrMessage::Message(msg), Priority::Low)
             .await
     }
 
     /// Send a message to the actor in a blocking fashion.
     /// When possible, prefer using [Self::send()].
-    pub(crate) fn send_message_blocking(&self, msg: Message) -> Result<(), SendError> {
+    pub(crate) fn send_message_blocking(&self, msg: A::Message) -> Result<(), SendError> {
         self.send_with_priority_blocking(CommandOrMessage::Message(msg), Priority::Low)
     }
 
@@ -232,37 +232,37 @@ impl<Message> Mailbox<Message> {
             .await
     }
 
-    pub fn try_send_message(&self, message: Message) -> Result<(), SendError> {
+    pub fn try_send_message(&self, message: A::Message) -> Result<(), SendError> {
         self.inner
             .tx
             .try_send(CommandOrMessage::Message(message), Priority::Low)
     }
 }
 
-pub struct Inbox<Message> {
-    rx: Receiver<CommandOrMessage<Message>>,
+pub struct Inbox<A: Actor> {
+    rx: Receiver<CommandOrMessage<A>>,
 }
 
-impl<Message: fmt::Debug> Inbox<Message> {
-    pub(crate) async fn recv_timeout(&mut self) -> Result<CommandOrMessage<Message>, RecvError> {
+impl<A: Actor> Inbox<A> {
+    pub(crate) async fn recv_timeout(&mut self) -> Result<CommandOrMessage<A>, RecvError> {
         self.rx.recv_timeout(crate::message_timeout()).await
     }
 
     pub(crate) async fn recv_timeout_cmd_and_scheduled_msg_only(
         &mut self,
-    ) -> Result<CommandOrMessage<Message>, RecvError> {
+    ) -> Result<CommandOrMessage<A>, RecvError> {
         self.rx
             .recv_high_priority_timeout(crate::message_timeout())
             .await
     }
 
-    pub(crate) fn recv_timeout_blocking(&mut self) -> Result<CommandOrMessage<Message>, RecvError> {
+    pub(crate) fn recv_timeout_blocking(&mut self) -> Result<CommandOrMessage<A>, RecvError> {
         self.rx.recv_timeout_blocking(crate::message_timeout())
     }
 
     pub(crate) fn recv_timeout_cmd_and_scheduled_msg_only_blocking(
         &mut self,
-    ) -> Result<CommandOrMessage<Message>, RecvError> {
+    ) -> Result<CommandOrMessage<A>, RecvError> {
         self.rx
             .recv_high_priority_timeout_blocking(crate::message_timeout())
     }
@@ -272,7 +272,7 @@ impl<Message: fmt::Debug> Inbox<Message> {
     ///
     /// Warning this iterator might never be exhausted if there is a living
     /// mailbox associated to it.
-    pub fn drain_available_message_for_test(&self) -> Vec<Message> {
+    pub fn drain_available_message_for_test(&self) -> Vec<A::Message> {
         self.rx
             .drain_low_priority()
             .into_iter()
@@ -287,15 +287,15 @@ impl<Message: fmt::Debug> Inbox<Message> {
     ///
     /// Warning this iterator might never be exhausted if there is a living
     /// mailbox associated to it.
-    pub fn drain_available_message_or_command_for_test(mut self) -> Vec<CommandOrMessage<Message>> {
+    pub fn drain_available_message_or_command_for_test(mut self) -> Vec<CommandOrMessage<A>> {
         self.rx.drain_all()
     }
 }
 
-pub fn create_mailbox<M>(
+pub fn create_mailbox<A: Actor>(
     actor_name: String,
     queue_capacity: QueueCapacity,
-) -> (Mailbox<M>, Inbox<M>) {
+) -> (Mailbox<A>, Inbox<A>) {
     let (tx, rx) = crate::channel_with_priority::channel(queue_capacity);
     let mailbox = Mailbox {
         inner: Arc::new(Inner {
@@ -307,6 +307,6 @@ pub fn create_mailbox<M>(
     (mailbox, inbox)
 }
 
-pub fn create_test_mailbox<M>() -> (Mailbox<M>, Inbox<M>) {
+pub fn create_test_mailbox<A: Actor>() -> (Mailbox<A>, Inbox<A>) {
     create_mailbox("test-mailbox".to_string(), QueueCapacity::Unbounded)
 }

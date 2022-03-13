@@ -28,6 +28,7 @@ use tokio::sync::oneshot::Receiver;
 use tracing::info;
 
 use crate::actors::uploader::MAX_CONCURRENT_SPLIT_UPLOAD;
+use crate::actors::{GarbageCollector, MergePlanner};
 use crate::models::{MergePlannerMessage, PublishOperation, PublisherMessage};
 
 #[derive(Debug, Clone, Default)]
@@ -61,8 +62,8 @@ pub struct Publisher {
     publisher_type: PublisherType,
     source_id: String,
     metastore: Arc<dyn Metastore>,
-    merge_planner_mailbox: Mailbox<MergePlannerMessage>,
-    garbage_collector_mailbox: Mailbox<()>,
+    merge_planner_mailbox: Mailbox<MergePlanner>,
+    garbage_collector_mailbox: Mailbox<GarbageCollector>,
     counters: PublisherCounters,
 }
 
@@ -71,8 +72,8 @@ impl Publisher {
         publisher_type: PublisherType,
         source_id: String,
         metastore: Arc<dyn Metastore>,
-        merge_planner_mailbox: Mailbox<MergePlannerMessage>,
-        garbage_collector_mailbox: Mailbox<()>,
+        merge_planner_mailbox: Mailbox<MergePlanner>,
+        garbage_collector_mailbox: Mailbox<GarbageCollector>,
     ) -> Publisher {
         Publisher {
             publisher_type,

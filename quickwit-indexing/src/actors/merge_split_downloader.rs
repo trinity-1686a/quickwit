@@ -25,6 +25,7 @@ use quickwit_metastore::SplitMetadata;
 use tantivy::Directory;
 use tracing::{info, info_span, warn, Span};
 
+use crate::actors::MergeExecutor;
 use crate::merge_policy::MergeOperation;
 use crate::models::{MergeScratch, ScratchDirectory};
 use crate::split_store::IndexingSplitStore;
@@ -32,7 +33,7 @@ use crate::split_store::IndexingSplitStore;
 pub struct MergeSplitDownloader {
     pub scratch_directory: ScratchDirectory,
     pub storage: IndexingSplitStore,
-    pub merge_executor_mailbox: Mailbox<MergeScratch>,
+    pub merge_executor_mailbox: Mailbox<MergeExecutor>,
 }
 
 impl Actor for MergeSplitDownloader {

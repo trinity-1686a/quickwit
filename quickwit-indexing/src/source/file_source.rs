@@ -30,7 +30,8 @@ use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncSeekExt, BufReader};
 use tracing::info;
 
-use crate::models::{IndexerMessage, RawDocBatch};
+use crate::actors::Indexer;
+use crate::models::RawDocBatch;
 use crate::source::{Source, SourceContext, TypedSourceFactory};
 
 /// Cut a new batch as soon as we have read BATCH_NUM_BYTES_THRESHOLD.
@@ -53,7 +54,7 @@ pub struct FileSource {
 impl Source for FileSource {
     async fn emit_batches(
         &mut self,
-        batch_sink: &Mailbox<IndexerMessage>,
+        batch_sink: &Mailbox<Indexer>,
         ctx: &SourceContext,
     ) -> Result<(), ActorExitStatus> {
         // We collect batches of documents before sending them to the indexer.
