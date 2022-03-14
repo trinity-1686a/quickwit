@@ -19,6 +19,8 @@
 
 use std::time::Duration;
 
+use tokio::sync::oneshot;
+
 use crate::channel_with_priority::Priority;
 use crate::mailbox::{Command, CommandOrMessage};
 use crate::scheduler::{SchedulerMessage, TimeShift};
@@ -89,7 +91,7 @@ impl Universe {
         &self,
         mailbox: &Mailbox<A>,
         message: M,
-    ) -> Result<(), crate::SendError>
+    ) -> Result<oneshot::Receiver<M::Response>, crate::SendError>
     where
         A: AsyncHandler<M>,
         M: Message,

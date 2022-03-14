@@ -25,6 +25,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use thiserror::Error;
+use tokio::sync::oneshot;
 use tokio::sync::watch::Sender;
 use tracing::{debug, error, info_span, Span};
 
@@ -373,7 +374,7 @@ impl<A: Actor + AsyncActor> ActorContext<A> {
         &self,
         mailbox: &Mailbox<Dest>,
         msg: M,
-    ) -> Result<(), crate::SendError>
+    ) -> Result<oneshot::Receiver<M::Response>, crate::SendError>
     where
         Dest: AsyncHandler<M>,
         M: Message,
@@ -402,7 +403,10 @@ impl<A: Actor + AsyncActor> ActorContext<A> {
     }
 
     /// `async` version of `send_self_message`.
-    pub async fn send_self_message<M>(&self, msg: M) -> Result<(), crate::SendError>
+    pub async fn send_self_message<M>(
+        &self,
+        msg: M,
+    ) -> Result<oneshot::Receiver<M::Response>, crate::SendError>
     where
         A: AsyncHandler<M>,
         M: Message,
@@ -417,12 +421,10 @@ impl<A: Actor + AsyncActor> ActorContext<A> {
         M: Message,
     {
         let self_mailbox = self.inner.self_mailbox.clone();
+        let (envelope, response_rx) = wrap_in_async_envelope(msg);
         let callback = Callback(Box::pin(async move {
             let _ = self_mailbox
-                .send_with_priority(
-                    CommandOrMessage::AsyncMessage(wrap_in_async_envelope(msg)),
-                    Priority::High,
-                )
+                .send_with_priority(CommandOrMessage::AsyncMessage(envelope), Priority::High)
                 .await;
         }));
         let scheduler_msg = SchedulerMessage::ScheduleEvent {

@@ -17,6 +17,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use tokio::sync::oneshot::{self, Sender};
+
 use crate::{Actor, ActorContext, ActorExitStatus, AsyncHandler, Message};
 
 #[async_trait::async_trait]
@@ -28,12 +30,12 @@ pub(crate) trait AsyncEnvelope<A: Actor>: Send + Sync {
     ) -> Result<(), ActorExitStatus>;
 }
 
-struct AsyncEnvelopeImpl<M: Send> {
-    message: Option<M>,
+struct AsyncEnvelopeImpl<M: Message> {
+    message: Option<(oneshot::Sender<M::Response>, M)>,
 }
 
 #[async_trait::async_trait]
-impl<A, M: Send + Sync> AsyncEnvelope<A> for AsyncEnvelopeImpl<M>
+impl<A, M> AsyncEnvelope<A> for AsyncEnvelopeImpl<M>
 where
     A: AsyncHandler<M>,
     M: Message,
@@ -43,26 +45,25 @@ where
         actor: &mut A,
         ctx: &ActorContext<A>,
     ) -> Result<(), ActorExitStatus> {
-        if let Some(msg) = self.message.take() {
-            actor.handle(msg, ctx).await?;
+        if let Some((response_tx, msg)) = self.message.take() {
+            let response = actor.handle(msg, ctx).await?;
+            response_tx.send(response);
         }
         // TODO
         Ok(())
     }
 }
 
-impl<M: Send> From<M> for AsyncEnvelopeImpl<M> {
-    fn from(message: M) -> Self {
-        AsyncEnvelopeImpl {
-            message: Some(message),
-        }
-    }
-}
-
-pub(crate) fn wrap_in_async_envelope<A, M>(msg: M) -> Box<dyn AsyncEnvelope<A>>
+pub(crate) fn wrap_in_async_envelope<A, M>(
+    msg: M,
+) -> (Box<dyn AsyncEnvelope<A>>, oneshot::Receiver<M::Response>)
 where
     A: AsyncHandler<M>,
     M: Message,
 {
-    Box::new(AsyncEnvelopeImpl::from(msg)) as Box<dyn AsyncEnvelope<A>>
+    let (response_tx, response_rx) = oneshot::channel();
+    let envelope = AsyncEnvelopeImpl {
+        message: Some((response_tx, msg)),
+    };
+    (Box::new(envelope) as Box<dyn AsyncEnvelope<A>>, response_rx)
 }

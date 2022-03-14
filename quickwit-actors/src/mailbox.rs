@@ -26,7 +26,7 @@ use tokio::sync::oneshot;
 
 use crate::channel_with_priority::{Priority, Receiver, Sender};
 use crate::envelope::{wrap_in_async_envelope, AsyncEnvelope};
-use crate::{Actor, AsyncActor, AsyncHandler, Message, QueueCapacity, RecvError, SendError};
+use crate::{Actor, AsyncHandler, Message, QueueCapacity, RecvError, SendError};
 
 /// A mailbox is the object that makes it possible to send a message
 /// to an actor.
@@ -202,29 +202,33 @@ impl<A: Actor> Mailbox<A> {
     /// SendError is returned if the actor has already exited.
     ///
     /// (See also [Self::send_blocking()])
-    pub(crate) async fn send_message<M>(&self, msg: M) -> Result<(), SendError>
+    pub(crate) async fn send_message<M>(
+        &self,
+        msg: M,
+    ) -> Result<oneshot::Receiver<M::Response>, SendError>
     where
         A: AsyncHandler<M>,
         M: Message,
     {
-        self.send_with_priority(
-            CommandOrMessage::AsyncMessage(wrap_in_async_envelope(msg)),
-            Priority::Low,
-        )
-        .await
+        let (msg, response_rx) = wrap_in_async_envelope(msg);
+        self.send_with_priority(CommandOrMessage::AsyncMessage(msg), Priority::Low)
+            .await?;
+        Ok(response_rx)
     }
 
     /// Send a message to the actor in a blocking fashion.
     /// When possible, prefer using [Self::send()].
-    pub(crate) fn send_message_blocking<M>(&self, msg: M) -> Result<(), SendError>
+    pub(crate) fn send_message_blocking<M>(
+        &self,
+        msg: M,
+    ) -> Result<oneshot::Receiver<M::Response>, SendError>
     where
         A: AsyncHandler<M>,
         M: Message,
     {
-        self.send_with_priority_blocking(
-            CommandOrMessage::AsyncMessage(wrap_in_async_envelope(msg)),
-            Priority::Low,
-        )
+        let (envelope, response_rx) = wrap_in_async_envelope(msg);
+        self.send_with_priority_blocking(CommandOrMessage::AsyncMessage(envelope), Priority::Low)?;
+        Ok(response_rx)
     }
 
     pub(crate) async fn send_command(&self, command: Command) -> Result<(), SendError> {
