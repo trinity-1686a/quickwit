@@ -34,7 +34,7 @@ use crate::mailbox::{Command, CommandOrMessage};
 use crate::progress::{Progress, ProtectedZoneGuard};
 use crate::scheduler::{Callback, Scheduler, SchedulerMessage};
 use crate::spawn_builder::SpawnBuilder;
-use crate::{AsyncActor, KillSwitch, Mailbox, QueueCapacity, SendError, SyncActor};
+use crate::{AsyncActor, KillSwitch, Mailbox, QueueCapacity, SendError};
 
 /// The actor exit status represents the outcome of the execution of an actor,
 /// after the end of the execution.
@@ -301,6 +301,7 @@ fn should_activate_kill_switch(exit_status: &ActorExitStatus) -> bool {
     }
 }
 
+/*
 impl<A: Actor + SyncActor> ActorContext<A> {
     /// Blocking version version of `send_message`. See `.send_message(...)`.
     pub fn send_message_blocking<Dest: Actor>(
@@ -356,6 +357,7 @@ impl<A: Actor + SyncActor> ActorContext<A> {
         let _ = self.send_message_blocking(&self.inner.scheduler_mailbox, scheduler_msg);
     }
 }
+*/
 
 impl<A: Actor + AsyncActor> ActorContext<A> {
     /// Posts a message in an actor's mailbox.

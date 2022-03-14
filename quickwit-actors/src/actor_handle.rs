@@ -289,7 +289,7 @@ mod tests {
     use async_trait::async_trait;
 
     use super::*;
-    use crate::{AsyncActor, SyncActor, Universe};
+    use crate::{AsyncActor, Universe};
 
     #[derive(Default)]
     struct PanickingActor {
@@ -304,16 +304,16 @@ mod tests {
         }
     }
 
-    impl SyncActor for PanickingActor {
-        fn process_message(
-            &mut self,
-            _message: Self::Message,
-            _ctx: &ActorContext<Self>,
-        ) -> Result<(), ActorExitStatus> {
-            self.count += 1;
-            panic!("Oops");
-        }
-    }
+    // impl SyncActor for PanickingActor {
+    //     fn process_message(
+    //         &mut self,
+    //         _message: Self::Message,
+    //         _ctx: &ActorContext<Self>,
+    //     ) -> Result<(), ActorExitStatus> {
+    //         self.count += 1;
+    //         panic!("Oops");
+    //     }
+    // }
 
     #[async_trait]
     impl AsyncActor for PanickingActor {
@@ -340,16 +340,16 @@ mod tests {
         }
     }
 
-    impl SyncActor for ExitActor {
-        fn process_message(
-            &mut self,
-            _message: Self::Message,
-            _ctx: &ActorContext<Self>,
-        ) -> Result<(), ActorExitStatus> {
-            self.count += 1;
-            Err(ActorExitStatus::DownstreamClosed)
-        }
-    }
+    // impl SyncActor for ExitActor {
+    //     fn process_message(
+    //         &mut self,
+    //         _message: Self::Message,
+    //         _ctx: &ActorContext<Self>,
+    //     ) -> Result<(), ActorExitStatus> {
+    //         self.count += 1;
+    //         Err(ActorExitStatus::DownstreamClosed)
+    //     }
+    // }
 
     #[async_trait]
     impl AsyncActor for ExitActor {
@@ -376,16 +376,16 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_panic_in_sync_actor() -> anyhow::Result<()> {
-        let universe = Universe::new();
-        let (mailbox, handle) = universe.spawn_actor(PanickingActor::default()).spawn_sync();
-        universe.send_message(&mailbox, ()).await?;
-        let (exit_status, count) = handle.join().await;
-        assert!(matches!(exit_status, ActorExitStatus::Panicked));
-        assert!(matches!(count, 1));
-        Ok(())
-    }
+    // #[tokio::test]
+    // async fn test_panic_in_sync_actor() -> anyhow::Result<()> {
+    //     let universe = Universe::new();
+    //     let (mailbox, handle) = universe.spawn_actor(PanickingActor::default()).spawn_sync();
+    //     universe.send_message(&mailbox, ()).await?;
+    //     let (exit_status, count) = handle.join().await;
+    //     assert!(matches!(exit_status, ActorExitStatus::Panicked));
+    //     assert!(matches!(count, 1));
+    //     Ok(())
+    // }
 
     #[tokio::test]
     async fn test_exit_in_async_actor() -> anyhow::Result<()> {
@@ -398,14 +398,14 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_exit_in_sync_actor() -> anyhow::Result<()> {
-        let universe = Universe::new();
-        let (mailbox, handle) = universe.spawn_actor(ExitActor::default()).spawn_sync();
-        universe.send_message(&mailbox, ()).await?;
-        let (exit_status, count) = handle.join().await;
-        assert!(matches!(exit_status, ActorExitStatus::DownstreamClosed));
-        assert!(matches!(count, 1));
-        Ok(())
-    }
+    // #[tokio::test]
+    // async fn test_exit_in_sync_actor() -> anyhow::Result<()> {
+    //     let universe = Universe::new();
+    //     let (mailbox, handle) = universe.spawn_actor(ExitActor::default()).spawn_sync();
+    //     universe.send_message(&mailbox, ()).await?;
+    //     let (exit_status, count) = handle.join().await;
+    //     assert!(matches!(exit_status, ActorExitStatus::DownstreamClosed));
+    //     assert!(matches!(count, 1));
+    //     Ok(())
+    // }
 }

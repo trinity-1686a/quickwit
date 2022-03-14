@@ -20,9 +20,9 @@
 use crate::async_actor::spawn_async_actor;
 use crate::mailbox::Inbox;
 use crate::scheduler::Scheduler;
-use crate::sync_actor::spawn_sync_actor;
+// use crate::sync_actor::spawn_sync_actor;
 use crate::{
-    create_mailbox, Actor, ActorContext, ActorHandle, AsyncActor, KillSwitch, Mailbox, SyncActor,
+    create_mailbox, Actor, ActorContext, ActorHandle, AsyncActor, KillSwitch, Mailbox,
 };
 
 /// `SpawnBuilder` makes it possible to configure misc parameters before spawning an actor.
@@ -94,12 +94,12 @@ impl<A: AsyncActor> SpawnBuilder<A> {
     }
 }
 
-impl<A: SyncActor> SpawnBuilder<A> {
-    /// Spawns an async actor.
-    pub fn spawn_sync(self) -> (Mailbox<A>, ActorHandle<A>) {
-        let (actor, ctx, inbox) = self.create_actor_context_and_inbox();
-        let mailbox = ctx.mailbox().clone();
-        let actor_handle = spawn_sync_actor(actor, ctx, inbox);
-        (mailbox, actor_handle)
-    }
-}
+// impl<A: SyncActor> SpawnBuilder<A> {
+//     /// Spawns an async actor.
+//     pub fn spawn_sync(self) -> (Mailbox<A>, ActorHandle<A>) {
+//         let (actor, ctx, inbox) = self.create_actor_context_and_inbox();
+//         let mailbox = ctx.mailbox().clone();
+//         let actor_handle = spawn_sync_actor(actor, ctx, inbox);
+//         (mailbox, actor_handle)
+//     }
+// }

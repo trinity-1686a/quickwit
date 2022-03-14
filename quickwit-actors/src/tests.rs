@@ -25,7 +25,7 @@ use crate::mailbox::Command;
 use crate::observation::ObservationType;
 use crate::{
     message_timeout, Actor, ActorContext, ActorExitStatus, ActorHandle, ActorState, AsyncActor,
-    Health, Mailbox, Observation, Supervisable, SyncActor, Universe,
+    Health, Mailbox, Observation, Supervisable, Universe,
 };
 
 // An actor that receives ping messages.
@@ -51,8 +51,9 @@ impl Actor for PingReceiverSyncActor {
     }
 }
 
-impl SyncActor for PingReceiverSyncActor {
-    fn process_message(
+#[async_trait]
+impl AsyncActor for PingReceiverSyncActor {
+    async fn process_message(
         &mut self,
         _message: Self::Message,
         _ctx: &ActorContext<Self>,
@@ -155,7 +156,7 @@ async fn test_ping_actor() {
     let universe = Universe::new();
     let (ping_recv_mailbox, ping_recv_handle) = universe
         .spawn_actor(PingReceiverSyncActor::default())
-        .spawn_sync();
+        .spawn_async();
     let (ping_sender_mailbox, ping_sender_handle) = universe
         .spawn_actor(PingerAsyncSenderActor::default())
         .spawn_async();
@@ -307,32 +308,32 @@ async fn test_timeouting_actor() {
     assert_eq!(buggy_handle.health(), Health::FailureOrUnhealthy);
 }
 
-#[tokio::test]
-async fn test_pause_sync_actor() {
-    quickwit_common::setup_logging_for_tests();
-    let universe = Universe::new();
-    let actor = PingReceiverSyncActor::default();
-    let (ping_mailbox, ping_handle) = universe.spawn_actor(actor).spawn_sync();
-    for _ in 0..1000 {
-        assert!(ping_mailbox.send_message(Ping).await.is_ok());
-    }
-    // Commands should be processed before message.
-    assert!(ping_mailbox.send_command(Command::Pause).await.is_ok());
-    let first_state = ping_handle.observe().await.state;
-    assert!(first_state < 1000);
-    let second_state = ping_handle.observe().await.state;
-    assert_eq!(first_state, second_state);
-    assert!(ping_mailbox.send_command(Command::Resume).await.is_ok());
-    let end_state = ping_handle.process_pending_and_observe().await.state;
-    assert_eq!(end_state, 1000);
-}
+// #[tokio::test]
+// async fn test_pause_sync_actor() {
+//     quickwit_common::setup_logging_for_tests();
+//     let universe = Universe::new();
+//     let actor = PingReceiverSyncActor::default();
+//     let (ping_mailbox, ping_handle) = universe.spawn_actor(actor).spawn_sync();
+//     for _ in 0..1000 {
+//         assert!(ping_mailbox.send_message(Ping).await.is_ok());
+//     }
+//     // Commands should be processed before message.
+//     assert!(ping_mailbox.send_command(Command::Pause).await.is_ok());
+//     let first_state = ping_handle.observe().await.state;
+//     assert!(first_state < 1000);
+//     let second_state = ping_handle.observe().await.state;
+//     assert_eq!(first_state, second_state);
+//     assert!(ping_mailbox.send_command(Command::Resume).await.is_ok());
+//     let end_state = ping_handle.process_pending_and_observe().await.state;
+//     assert_eq!(end_state, 1000);
+// }
 
 #[tokio::test]
 async fn test_sync_actor_running_states() {
     quickwit_common::setup_logging_for_tests();
     let universe = Universe::new();
     let actor = PingReceiverSyncActor::default();
-    let (ping_mailbox, ping_handle) = universe.spawn_actor(actor).spawn_sync();
+    let (ping_mailbox, ping_handle) = universe.spawn_actor(actor).spawn_async();
     assert!(ping_handle.state() == ActorState::Processing);
     for _ in 0..10 {
         assert!(ping_mailbox.send_message(Ping).await.is_ok());
@@ -439,6 +440,7 @@ impl AsyncActor for LoopingActor {
     }
 }
 
+/*
 impl SyncActor for LoopingActor {
     fn initialize(&mut self, ctx: &ActorContext<Self>) -> Result<(), ActorExitStatus> {
         <LoopingActor as SyncActor>::process_message(self, Msg::Looping, ctx)
@@ -461,13 +463,14 @@ impl SyncActor for LoopingActor {
         Ok(())
     }
 }
+*/
 
 #[tokio::test]
 async fn test_looping_async() -> anyhow::Result<()> {
     let universe = Universe::new();
     let looping_actor = LoopingActor::default();
     let (looping_actor_mailbox, looping_actor_handle) =
-        universe.spawn_actor(looping_actor).spawn_sync();
+        universe.spawn_actor(looping_actor).spawn_async();
     assert!(looping_actor_mailbox
         .send_message(Msg::Normal)
         .await
@@ -480,23 +483,23 @@ async fn test_looping_async() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_looping_sync() -> anyhow::Result<()> {
-    let universe = Universe::new();
-    let looping_actor = LoopingActor::default();
-    let (looping_actor_mailbox, looping_actor_handle) =
-        universe.spawn_actor(looping_actor).spawn_sync();
-    assert!(looping_actor_mailbox
-        .send_message(Msg::Normal)
-        .await
-        .is_ok());
-    looping_actor_handle.process_pending_and_observe().await;
-    let (exit_status, state) = looping_actor_handle.quit().await;
-    assert!(matches!(exit_status, ActorExitStatus::Quit));
-    assert_eq!(state.normal_count, 1);
-    assert!(state.default_count > 0);
-    Ok(())
-}
+// #[tokio::test]
+// async fn test_looping_sync() -> anyhow::Result<()> {
+//     let universe = Universe::new();
+//     let looping_actor = LoopingActor::default();
+//     let (looping_actor_mailbox, looping_actor_handle) =
+//         universe.spawn_actor(looping_actor).spawn_sync();
+//     assert!(looping_actor_mailbox
+//         .send_message(Msg::Normal)
+//         .await
+//         .is_ok());
+//     looping_actor_handle.process_pending_and_observe().await;
+//     let (exit_status, state) = looping_actor_handle.quit().await;
+//     assert!(matches!(exit_status, ActorExitStatus::Quit));
+//     assert_eq!(state.normal_count, 1);
+//     assert!(state.default_count > 0);
+//     Ok(())
+// }
 
 #[derive(Default)]
 struct SummingActor {
@@ -513,8 +516,9 @@ impl Actor for SummingActor {
     }
 }
 
-impl SyncActor for SummingActor {
-    fn process_message(
+#[async_trait]
+impl AsyncActor for SummingActor {
+    async fn process_message(
         &mut self,
         add: Self::Message,
         _ctx: &ActorContext<Self>,
@@ -548,7 +552,7 @@ impl AsyncActor for SpawningActor {
     ) -> Result<(), ActorExitStatus> {
         let (mailbox, _) = self
             .handle_opt
-            .get_or_insert_with(|| ctx.spawn_actor(SummingActor::default()).spawn_sync());
+            .get_or_insert_with(|| ctx.spawn_actor(SummingActor::default()).spawn_async());
         ctx.send_message(mailbox, message).await?;
         Ok(())
     }
@@ -593,6 +597,7 @@ impl Actor for BuggyFinalizeActor {
     fn observable_state(&self) {}
 }
 
+/*
 impl SyncActor for BuggyFinalizeActor {
     fn process_message(
         &mut self,
@@ -610,6 +615,7 @@ impl SyncActor for BuggyFinalizeActor {
         anyhow::bail!("Finalize error")
     }
 }
+*/
 
 #[async_trait]
 impl AsyncActor for BuggyFinalizeActor {
@@ -633,12 +639,12 @@ impl AsyncActor for BuggyFinalizeActor {
 #[tokio::test]
 async fn test_actor_finalize_error_set_exit_status_to_panicked() -> anyhow::Result<()> {
     let universe = Universe::new();
-    // Sync
-    let (mailbox, handle) = universe.spawn_actor(BuggyFinalizeActor).spawn_sync();
-    assert!(matches!(handle.state(), ActorState::Processing));
-    drop(mailbox);
-    let (exit, _) = handle.join().await;
-    assert!(matches!(exit, ActorExitStatus::Panicked));
+    // // Sync
+    // let (mailbox, handle) = universe.spawn_actor(BuggyFinalizeActor).spawn_sync();
+    // assert!(matches!(handle.state(), ActorState::Processing));
+    // drop(mailbox);
+    // let (exit, _) = handle.join().await;
+    // assert!(matches!(exit, ActorExitStatus::Panicked));
 
     // Async
     let (mailbox, handle) = universe.spawn_actor(BuggyFinalizeActor).spawn_async();

@@ -38,7 +38,7 @@ mod observation;
 mod progress;
 mod scheduler;
 mod spawn_builder;
-mod sync_actor;
+// mod sync_actor;
 #[cfg(test)]
 mod tests;
 mod universe;
@@ -50,7 +50,7 @@ pub use kill_switch::KillSwitch;
 pub use observation::{Observation, ObservationType};
 pub use progress::{Progress, ProtectedZoneGuard};
 pub(crate) use scheduler::Scheduler;
-pub use sync_actor::SyncActor;
+// pub use sync_actor::SyncActor;
 pub use universe::Universe;
 
 pub use self::actor::ActorContext;
