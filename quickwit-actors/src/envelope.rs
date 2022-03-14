@@ -17,7 +17,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use tokio::sync::oneshot::{self, Sender};
+use tokio::sync::oneshot;
 
 use crate::{Actor, ActorContext, ActorExitStatus, AsyncHandler, Message};
 
@@ -47,7 +47,8 @@ where
     ) -> Result<(), ActorExitStatus> {
         if let Some((response_tx, msg)) = self.message.take() {
             let response = actor.handle(msg, ctx).await?;
-            response_tx.send(response);
+            // It is fine if the caller is not waiting for the response.
+            let _ = response_tx.send(response);
         }
         // TODO
         Ok(())

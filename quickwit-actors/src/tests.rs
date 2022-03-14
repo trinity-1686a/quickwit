@@ -644,22 +644,69 @@ impl AsyncActor for BuggyFinalizeActor {
     }
 }
 
-#[tokio::test]
-async fn test_actor_finalize_error_set_exit_status_to_panicked() -> anyhow::Result<()> {
-    let universe = Universe::new();
-    // // Sync
-    // let (mailbox, handle) = universe.spawn_actor(BuggyFinalizeActor).spawn_sync();
-    // assert!(matches!(handle.state(), ActorState::Processing));
-    // drop(mailbox);
-    // let (exit, _) = handle.join().await;
-    // assert!(matches!(exit, ActorExitStatus::Panicked));
+// #[tokio::test]
+// async fn test_actor_finalize_error_set_exit_status_to_panicked_sync() -> anyhow::Result<()> {
+//     let universe = Universe::new();
+//     let (mailbox, handle) = universe.spawn_actor(BuggyFinalizeActor).spawn_sync();
+//     assert!(matches!(handle.state(), ActorState::Processing));
+//     drop(mailbox);
+//     let (exit, _) = handle.join().await;
+//     assert!(matches!(exit, ActorExitStatus::Panicked));
+//     Ok(())
+// }
 
-    // Async
+#[tokio::test]
+async fn test_actor_finalize_error_set_exit_status_to_panicked_async() -> anyhow::Result<()> {
+    let universe = Universe::new();
     let (mailbox, handle) = universe.spawn_actor(BuggyFinalizeActor).spawn_async();
     assert!(matches!(handle.state(), ActorState::Processing));
     drop(mailbox);
     let (exit, _) = handle.join().await;
     assert!(matches!(exit, ActorExitStatus::Panicked));
+    Ok(())
+}
 
+#[derive(Default)]
+struct Adder(u64);
+
+impl Actor for Adder {
+    type ObservableState = ();
+
+    fn observable_state(&self) -> Self::ObservableState {
+        ()
+    }
+}
+
+#[async_trait]
+impl AsyncActor for Adder {}
+
+#[derive(Debug)]
+struct AddOperand(u64);
+
+impl Message for AddOperand {
+    type Response = u64;
+}
+
+#[async_trait]
+impl AsyncHandler<AddOperand> for Adder {
+    async fn handle(
+        &mut self,
+        add_op: AddOperand,
+        ctx: &ActorContext<Self>,
+    ) -> Result<u64, ActorExitStatus> {
+        self.0 += add_op.0;
+        Ok(self.0)
+    }
+}
+
+#[tokio::test]
+async fn test_actor_return_response() -> anyhow::Result<()> {
+    let universe = Universe::new();
+    let adder = Adder::default();
+    let (mailbox, handle) = universe.spawn_actor(adder).spawn_async();
+    let plus_two = mailbox.send_message(AddOperand(2)).await?;
+    let plus_two_plus_four = mailbox.send_message(AddOperand(4)).await?;
+    assert_eq!(plus_two.await.unwrap(), 2);
+    assert_eq!(plus_two_plus_four.await.unwrap(), 6);
     Ok(())
 }

@@ -421,7 +421,7 @@ impl<A: Actor + AsyncActor> ActorContext<A> {
         M: Message,
     {
         let self_mailbox = self.inner.self_mailbox.clone();
-        let (envelope, response_rx) = wrap_in_async_envelope(msg);
+        let (envelope, _response_rx) = wrap_in_async_envelope(msg);
         let callback = Callback(Box::pin(async move {
             let _ = self_mailbox
                 .send_with_priority(CommandOrMessage::AsyncMessage(envelope), Priority::High)
