@@ -37,7 +37,9 @@ pub struct PingReceiverSyncActor {
 #[derive(Debug, Clone)]
 pub struct Ping;
 
-impl Message for Ping {}
+impl Message for Ping {
+    type Response = ();
+}
 
 impl Actor for PingReceiverSyncActor {
     type ObservableState = usize;
@@ -112,7 +114,9 @@ pub struct SenderState {
 
 #[derive(Debug, Clone)]
 pub struct AddPeer(Mailbox<PingReceiverSyncActor>);
-impl Message for AddPeer {}
+impl Message for AddPeer {
+    type Response = ();
+}
 
 impl Actor for PingerAsyncSenderActor {
     type ObservableState = SenderState;
@@ -239,12 +243,16 @@ struct BuggyActor;
 #[derive(Debug, Clone)]
 struct DoNothing;
 
-impl Message for DoNothing {}
+impl Message for DoNothing {
+    type Response = ();
+}
 
 #[derive(Debug, Clone)]
 struct Block;
 
-impl Message for Block {}
+impl Message for Block {
+    type Response = ();
+}
 
 impl Actor for BuggyActor {
     type ObservableState = ();
@@ -407,12 +415,16 @@ struct LoopingActor {
 #[derive(Debug)]
 struct Loop;
 
-impl Message for Loop {}
+impl Message for Loop {
+    type Response = ();
+}
 
 #[derive(Debug)]
 struct SingleShot;
 
-impl Message for SingleShot {}
+impl Message for SingleShot {
+    type Response = ();
+}
 
 impl Actor for LoopingActor {
     type ObservableState = Self;
@@ -510,7 +522,9 @@ struct SummingActor {
     sum: u64,
 }
 
-impl Message for u64 {}
+impl Message for u64 {
+    type Response = ();
+}
 
 #[async_trait]
 impl AsyncHandler<u64> for SummingActor {

@@ -82,7 +82,9 @@ pub(crate) enum SchedulerMessage {
     },
 }
 
-impl Message for SchedulerMessage {}
+impl Message for SchedulerMessage {
+    type Response = ();
+}
 
 impl fmt::Debug for SchedulerMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

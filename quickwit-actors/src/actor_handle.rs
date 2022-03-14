@@ -317,7 +317,9 @@ mod tests {
     #[derive(Debug)]
     struct Panick;
 
-    impl Message for Panick {}
+    impl Message for Panick {
+        type Response = ();
+    }
 
     #[async_trait]
     impl AsyncActor for PanickingActor {}
@@ -362,7 +364,9 @@ mod tests {
     #[derive(Debug)]
     struct Exit;
 
-    impl Message for Exit {}
+    impl Message for Exit {
+        type Response = ();
+    }
 
     #[async_trait]
     impl AsyncHandler<Exit> for ExitActor {

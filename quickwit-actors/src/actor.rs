@@ -108,7 +108,9 @@ impl From<SendError> for ActorExitStatus {
     }
 }
 
-pub trait Message: fmt::Debug + Send + Sync + 'static {}
+pub trait Message: fmt::Debug + Send + Sync + 'static {
+    type Response: Send + Sync + 'static;
+}
 
 /// An actor has an internal state and processes a stream of messages.
 /// Each actor has a mailbox where the messages are enqueued before being processed.

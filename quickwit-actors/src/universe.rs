@@ -148,7 +148,9 @@ mod tests {
     #[derive(Debug)]
     struct Loop;
 
-    impl Message for Loop {}
+    impl Message for Loop {
+        type Response = ();
+    }
 
     #[async_trait]
     impl AsyncActor for ActorWithSchedule {
