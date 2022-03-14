@@ -21,7 +21,7 @@ use anyhow::Context;
 use async_trait::async_trait;
 use tokio::sync::watch::{self, Sender};
 use tokio::task::JoinHandle;
-use tracing::{debug, error, info, Instrument};
+use tracing::{debug, error, info, Instrument, info_span};
 
 use crate::actor::{process_command, ActorExitStatus};
 use crate::actor_handle::ActorHandle;
@@ -146,7 +146,8 @@ async fn process_msg<A: AsyncActor>(
         }
         Ok(CommandOrMessage::Message(msg)) => {
             ctx.process();
-            let span = actor.message_span(msg_id, &msg);
+            let span = info_span!("", msg_id = &msg_id);
+            // let span = actor.message_span(msg_id);
             actor.process_message(msg, ctx).instrument(span).await.err()
         }
         Err(RecvError::Disconnected) => Some(ActorExitStatus::Success),
