@@ -22,7 +22,7 @@ use crate::{ActorContext, ActorExitStatus, AsyncActor, Actor, AsyncHandler};
 
 
 #[async_trait::async_trait]
-pub(crate) trait AsyncEnvelope<A: AsyncActor> {
+pub(crate) trait AsyncEnvelope<A: Actor>: Send + Sync {
     async fn process(&mut self, actor: &mut A, ctx: &ActorContext<A>) -> Result<(), ActorExitStatus>;
 }
 
@@ -31,7 +31,7 @@ struct AsyncEnvelopeImpl<M: Send> {
 }
 
 #[async_trait::async_trait]
-impl<A, M: Send> AsyncEnvelope<A> for AsyncEnvelopeImpl<M>
+impl<A, M: Send + Sync> AsyncEnvelope<A> for AsyncEnvelopeImpl<M>
     where A: AsyncActor + AsyncHandler<M> {
     async fn process(&mut self, actor: &mut A, ctx: &ActorContext<A>) -> Result<(), ActorExitStatus> {
         if let Some(msg ) = self.message.take() {
@@ -52,7 +52,7 @@ impl<M: Send> From<M> for AsyncEnvelopeImpl<M> {
     }
 }
 
-fn wrap_in_sync_envelope<A, M: 'static + Send>(msg: M) -> Box<dyn AsyncEnvelope<A>>
+fn wrap_in_sync_envelope<A, M: 'static + Send + Sync>(msg: M) -> Box<dyn AsyncEnvelope<A>>
     where A: AsyncHandler<M> {
     Box::new(AsyncEnvelopeImpl::from(msg)) as Box<dyn AsyncEnvelope<A>>
 }

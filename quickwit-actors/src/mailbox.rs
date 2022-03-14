@@ -25,6 +25,7 @@ use std::sync::Arc;
 use tokio::sync::oneshot;
 
 use crate::channel_with_priority::{Priority, Receiver, Sender};
+use crate::envelope::AsyncEnvelope;
 use crate::{Actor, QueueCapacity, RecvError, SendError};
 
 /// A mailbox is the object that makes it possible to send a message
@@ -61,8 +62,9 @@ impl<A: Actor> Mailbox<A> {
     }
 }
 
-pub enum CommandOrMessage<A: Actor> {
+pub(crate) enum CommandOrMessage<A: Actor> {
     Message(A::Message),
+    AsyncMessage(Box<dyn AsyncEnvelope<A>>),
     Command(Command),
 }
 
@@ -263,17 +265,18 @@ impl<A: Actor> Inbox<A> {
             .flat_map(|command_or_message| match command_or_message {
                 CommandOrMessage::Message(msg) => Some(msg),
                 CommandOrMessage::Command(_) => None,
+                CommandOrMessage::AsyncMessage(_) => todo!(),
             })
             .collect()
     }
 
-    /// Destroys the inbox and returns the list of pending messages or commands.
-    ///
-    /// Warning this iterator might never be exhausted if there is a living
-    /// mailbox associated to it.
-    pub fn drain_available_message_or_command_for_test(mut self) -> Vec<CommandOrMessage<A>> {
-        self.rx.drain_all()
-    }
+    // /// Destroys the inbox and returns the list of pending messages or commands.
+    // ///
+    // /// Warning this iterator might never be exhausted if there is a living
+    // /// mailbox associated to it.
+    // pub fn drain_available_message_or_command_for_test(mut self) -> Vec<CommandOrMessage<A>> {
+    //     self.rx.drain_all()
+    // }
 }
 
 pub fn create_mailbox<A: Actor>(

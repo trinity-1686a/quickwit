@@ -150,6 +150,12 @@ async fn process_msg<A: AsyncActor>(
             // let span = actor.message_span(msg_id);
             actor.process_message(msg, ctx).instrument(span).await.err()
         }
+        Ok(CommandOrMessage::AsyncMessage(mut msg)) => {
+            ctx.process();
+            let span = info_span!("", msg_id = &msg_id);
+            // let span = actor.message_span(msg_id);
+            msg.process(actor, ctx).instrument(span).await.err()
+        }
         Err(RecvError::Disconnected) => Some(ActorExitStatus::Success),
         Err(RecvError::Timeout) => {
             ctx.idle();
