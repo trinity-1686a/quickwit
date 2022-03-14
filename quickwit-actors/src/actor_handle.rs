@@ -289,7 +289,7 @@ mod tests {
     use async_trait::async_trait;
 
     use super::*;
-    use crate::{AsyncActor, Universe};
+    use crate::{AsyncActor, AsyncHandler, Message, Universe};
 
     #[derive(Default)]
     struct PanickingActor {
@@ -297,7 +297,6 @@ mod tests {
     }
 
     impl Actor for PanickingActor {
-        type Message = ();
         type ObservableState = usize;
         fn observable_state(&self) -> usize {
             self.count
@@ -315,12 +314,20 @@ mod tests {
     //     }
     // }
 
+    #[derive(Debug)]
+    struct Panick;
+
+    impl Message for Panick {}
+
     #[async_trait]
-    impl AsyncActor for PanickingActor {
-        async fn process_message(
+    impl AsyncActor for PanickingActor {}
+
+    #[async_trait]
+    impl AsyncHandler<Panick> for PanickingActor {
+        async fn handle(
             &mut self,
-            _message: Self::Message,
-            _ctx: &ActorContext<Self>,
+            message: Panick,
+            ctx: &ActorContext<Self>,
         ) -> Result<(), ActorExitStatus> {
             self.count += 1;
             panic!("Oops");
@@ -333,12 +340,13 @@ mod tests {
     }
 
     impl Actor for ExitActor {
-        type Message = ();
         type ObservableState = usize;
         fn observable_state(&self) -> usize {
             self.count
         }
     }
+
+    impl AsyncActor for ExitActor {}
 
     // impl SyncActor for ExitActor {
     //     fn process_message(
@@ -351,12 +359,17 @@ mod tests {
     //     }
     // }
 
+    #[derive(Debug)]
+    struct Exit;
+
+    impl Message for Exit {}
+
     #[async_trait]
-    impl AsyncActor for ExitActor {
-        async fn process_message(
+    impl AsyncHandler<Exit> for ExitActor {
+        async fn handle(
             &mut self,
-            _message: Self::Message,
-            _ctx: &ActorContext<Self>,
+            _msg: Exit,
+            ctx: &ActorContext<Self>,
         ) -> Result<(), ActorExitStatus> {
             self.count += 1;
             Err(ActorExitStatus::DownstreamClosed)
@@ -369,7 +382,7 @@ mod tests {
         let (mailbox, handle) = universe
             .spawn_actor(PanickingActor::default())
             .spawn_async();
-        universe.send_message(&mailbox, ()).await?;
+        universe.send_message(&mailbox, Panick).await?;
         let (exit_status, count) = handle.join().await;
         assert!(matches!(exit_status, ActorExitStatus::Panicked));
         assert!(matches!(count, 1)); //< Upon panick we cannot get a post mortem state.
@@ -391,7 +404,7 @@ mod tests {
     async fn test_exit_in_async_actor() -> anyhow::Result<()> {
         let universe = Universe::new();
         let (mailbox, handle) = universe.spawn_actor(ExitActor::default()).spawn_async();
-        universe.send_message(&mailbox, ()).await?;
+        universe.send_message(&mailbox, Exit).await?;
         let (exit_status, count) = handle.join().await;
         assert!(matches!(exit_status, ActorExitStatus::DownstreamClosed));
         assert!(matches!(count, 1)); //< Upon panick we cannot get a post mortem state.

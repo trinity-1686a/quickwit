@@ -21,9 +21,7 @@ use crate::async_actor::spawn_async_actor;
 use crate::mailbox::Inbox;
 use crate::scheduler::Scheduler;
 // use crate::sync_actor::spawn_sync_actor;
-use crate::{
-    create_mailbox, Actor, ActorContext, ActorHandle, AsyncActor, KillSwitch, Mailbox,
-};
+use crate::{create_mailbox, Actor, ActorContext, ActorHandle, AsyncActor, KillSwitch, Mailbox};
 
 /// `SpawnBuilder` makes it possible to configure misc parameters before spawning an actor.
 pub struct SpawnBuilder<A: Actor> {

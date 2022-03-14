@@ -25,7 +25,7 @@ use crate::mailbox::Command;
 use crate::observation::ObservationType;
 use crate::{
     message_timeout, Actor, ActorContext, ActorExitStatus, ActorHandle, ActorState, AsyncActor,
-    Health, Mailbox, Observation, Supervisable, Universe,
+    AsyncHandler, Health, Mailbox, Message, Observation, Supervisable, Universe,
 };
 
 // An actor that receives ping messages.
@@ -37,9 +37,9 @@ pub struct PingReceiverSyncActor {
 #[derive(Debug, Clone)]
 pub struct Ping;
 
-impl Actor for PingReceiverSyncActor {
-    type Message = Ping;
+impl Message for Ping {}
 
+impl Actor for PingReceiverSyncActor {
     type ObservableState = usize;
 
     fn name(&self) -> String {
@@ -52,10 +52,13 @@ impl Actor for PingReceiverSyncActor {
 }
 
 #[async_trait]
-impl AsyncActor for PingReceiverSyncActor {
-    async fn process_message(
+impl AsyncActor for PingReceiverSyncActor {}
+
+#[async_trait]
+impl AsyncHandler<Ping> for PingReceiverSyncActor {
+    async fn handle(
         &mut self,
-        _message: Self::Message,
+        _message: Ping,
         _ctx: &ActorContext<Self>,
     ) -> Result<(), ActorExitStatus> {
         self.ping_count += 1;
@@ -70,8 +73,6 @@ pub struct PingReceiverAsyncActor {
 }
 
 impl Actor for PingReceiverAsyncActor {
-    type Message = Ping;
-
     type ObservableState = usize;
 
     fn name(&self) -> String {
@@ -84,11 +85,14 @@ impl Actor for PingReceiverAsyncActor {
 }
 
 #[async_trait]
-impl AsyncActor for PingReceiverAsyncActor {
-    async fn process_message(
+impl AsyncActor for PingReceiverAsyncActor {}
+
+#[async_trait]
+impl AsyncHandler<Ping> for PingReceiverAsyncActor {
+    async fn handle(
         &mut self,
-        _message: Self::Message,
-        _progress: &ActorContext<Self>,
+        _msg: Ping,
+        _ctx: &ActorContext<Self>,
     ) -> Result<(), ActorExitStatus> {
         self.ping_count += 1;
         Ok(())
@@ -107,13 +111,10 @@ pub struct SenderState {
 }
 
 #[derive(Debug, Clone)]
-pub enum SenderMessage {
-    AddPeer(Mailbox<PingReceiverSyncActor>),
-    Ping,
-}
+pub struct AddPeer(Mailbox<PingReceiverSyncActor>);
+impl Message for AddPeer {}
 
 impl Actor for PingerAsyncSenderActor {
-    type Message = SenderMessage;
     type ObservableState = SenderState;
 
     fn name(&self) -> String {
@@ -129,23 +130,32 @@ impl Actor for PingerAsyncSenderActor {
 }
 
 #[async_trait]
-impl AsyncActor for PingerAsyncSenderActor {
-    async fn process_message(
+impl AsyncActor for PingerAsyncSenderActor {}
+
+#[async_trait]
+impl AsyncHandler<Ping> for PingerAsyncSenderActor {
+    async fn handle(
         &mut self,
-        message: SenderMessage,
+        _message: Ping,
         _ctx: &ActorContext<Self>,
     ) -> Result<(), ActorExitStatus> {
-        match message {
-            SenderMessage::AddPeer(peer) => {
-                self.peers.insert(peer);
-            }
-            SenderMessage::Ping => {
-                self.count += 1;
-                for peer in &self.peers {
-                    let _ = peer.send_message(Ping).await;
-                }
-            }
+        self.count += 1;
+        for peer in &self.peers {
+            let _ = peer.send_message(Ping).await;
         }
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl AsyncHandler<AddPeer> for PingerAsyncSenderActor {
+    async fn handle(
+        &mut self,
+        message: AddPeer,
+        _ctx: &ActorContext<Self>,
+    ) -> Result<(), ActorExitStatus> {
+        let AddPeer(peer) = message;
+        self.peers.insert(peer);
         Ok(())
     }
 }
@@ -169,12 +179,9 @@ async fn test_ping_actor() {
     );
     // No peers. This one will have no impact.
     let ping_recv_mailbox = ping_recv_mailbox.clone();
+    assert!(ping_sender_mailbox.send_message(Ping).await.is_ok());
     assert!(ping_sender_mailbox
-        .send_message(SenderMessage::Ping)
-        .await
-        .is_ok());
-    assert!(ping_sender_mailbox
-        .send_message(SenderMessage::AddPeer(ping_recv_mailbox.clone()))
+        .send_message(AddPeer(ping_recv_mailbox.clone()))
         .await
         .is_ok());
     assert_eq!(
@@ -187,14 +194,8 @@ async fn test_ping_actor() {
             }
         }
     );
-    assert!(ping_sender_mailbox
-        .send_message(SenderMessage::Ping)
-        .await
-        .is_ok());
-    assert!(ping_sender_mailbox
-        .send_message(SenderMessage::Ping)
-        .await
-        .is_ok());
+    assert!(ping_sender_mailbox.send_message(Ping).await.is_ok());
+    assert!(ping_sender_mailbox.send_message(Ping).await.is_ok());
     assert_eq!(
         ping_sender_handle.process_pending_and_observe().await,
         Observation {
@@ -230,22 +231,22 @@ async fn test_ping_actor() {
             }
         }
     );
-    assert!(ping_sender_mailbox
-        .send_message(SenderMessage::Ping)
-        .await
-        .is_err());
+    assert!(ping_sender_mailbox.send_message(Ping).await.is_err());
 }
 
 struct BuggyActor;
 
 #[derive(Debug, Clone)]
-enum BuggyMessage {
-    DoNothing,
-    Block,
-}
+struct DoNothing;
+
+impl Message for DoNothing {}
+
+#[derive(Debug, Clone)]
+struct Block;
+
+impl Message for Block {}
 
 impl Actor for BuggyActor {
-    type Message = BuggyMessage;
     type ObservableState = ();
 
     fn name(&self) -> String {
@@ -256,20 +257,28 @@ impl Actor for BuggyActor {
 }
 
 #[async_trait]
-impl AsyncActor for BuggyActor {
-    async fn process_message(
+impl AsyncActor for BuggyActor {}
+
+#[async_trait]
+impl AsyncHandler<DoNothing> for BuggyActor {
+    async fn handle(
         &mut self,
-        message: BuggyMessage,
+        _message: DoNothing,
+        _ctx: &ActorContext<Self>,
+    ) -> Result<(), ActorExitStatus> {
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl AsyncHandler<Block> for BuggyActor {
+    async fn handle(
+        &mut self,
+        _message: Block,
         ctx: &ActorContext<Self>,
     ) -> Result<(), ActorExitStatus> {
-        match message {
-            BuggyMessage::Block => {
-                while ctx.kill_switch().is_alive() {
-                    // we could keep the actor alive by calling `progress.record_progress()` here.
-                    tokio::task::yield_now().await;
-                }
-            }
-            BuggyMessage::DoNothing => {}
+        while ctx.kill_switch().is_alive() {
+            tokio::task::yield_now().await;
         }
         Ok(())
     }
@@ -284,18 +293,12 @@ async fn test_timeouting_actor() {
         buggy_handle.observe().await.obs_type,
         ObservationType::Alive
     );
-    assert!(buggy_mailbox
-        .send_message(BuggyMessage::DoNothing)
-        .await
-        .is_ok());
+    assert!(buggy_mailbox.send_message(DoNothing).await.is_ok());
     assert_eq!(
         buggy_handle.observe().await.obs_type,
         ObservationType::Alive
     );
-    assert!(buggy_mailbox
-        .send_message(BuggyMessage::Block)
-        .await
-        .is_ok());
+    assert!(buggy_mailbox.send_message(Block).await.is_ok());
 
     assert_eq!(buggy_handle.health(), Health::Healthy);
     assert_eq!(
@@ -397,19 +400,21 @@ async fn test_async_actor_running_states() {
 
 #[derive(Default, Debug, Clone)]
 struct LoopingActor {
-    pub default_count: usize,
-    pub normal_count: usize,
+    pub loop_count: usize,
+    pub single_shot_count: usize,
 }
 
-#[derive(Clone, Debug)]
-enum Msg {
-    Looping,
-    Normal,
-}
+#[derive(Debug)]
+struct Loop;
+
+impl Message for Loop {}
+
+#[derive(Debug)]
+struct SingleShot;
+
+impl Message for SingleShot {}
 
 impl Actor for LoopingActor {
-    type Message = Msg;
-
     type ObservableState = Self;
 
     fn observable_state(&self) -> Self::ObservableState {
@@ -420,50 +425,52 @@ impl Actor for LoopingActor {
 #[async_trait]
 impl AsyncActor for LoopingActor {
     async fn initialize(&mut self, ctx: &ActorContext<Self>) -> Result<(), ActorExitStatus> {
-        <LoopingActor as AsyncActor>::process_message(self, Msg::Looping, ctx).await
+        self.handle(Loop, ctx).await
     }
+}
 
-    async fn process_message(
+#[async_trait]
+impl AsyncHandler<Loop> for LoopingActor {
+    async fn handle(&mut self, msg: Loop, ctx: &ActorContext<Self>) -> Result<(), ActorExitStatus> {
+        self.loop_count += 1;
+        ctx.send_self_message(Loop).await?;
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl AsyncHandler<SingleShot> for LoopingActor {
+    async fn handle(
         &mut self,
-        message: Self::Message,
+        msg: SingleShot,
         _ctx: &ActorContext<Self>,
     ) -> Result<(), ActorExitStatus> {
-        match message {
-            Msg::Looping => {
-                self.default_count += 1;
-            }
-            Msg::Normal => {
-                self.normal_count += 1;
-            }
-        }
+        self.single_shot_count += 1;
         Ok(())
     }
 }
-
-/*
-impl SyncActor for LoopingActor {
-    fn initialize(&mut self, ctx: &ActorContext<Self>) -> Result<(), ActorExitStatus> {
-        <LoopingActor as SyncActor>::process_message(self, Msg::Looping, ctx)
-    }
-
-    fn process_message(
-        &mut self,
-        message: Self::Message,
-        ctx: &ActorContext<Self>,
-    ) -> Result<(), ActorExitStatus> {
-        match message {
-            Msg::Looping => {
-                self.default_count += 1;
-                ctx.send_self_message_blocking(Msg::Looping)?;
-            }
-            Msg::Normal => {
-                self.normal_count += 1;
-            }
-        }
-        Ok(())
-    }
-}
-*/
+// impl SyncActor for LoopingActor {
+// fn initialize(&mut self, ctx: &ActorContext<Self>) -> Result<(), ActorExitStatus> {
+// <LoopingActor as SyncActor>::process_message(self, Msg::Looping, ctx)
+// }
+//
+// fn process_message(
+// &mut self,
+// message: Self::Message,
+// ctx: &ActorContext<Self>,
+// ) -> Result<(), ActorExitStatus> {
+// match message {
+// Msg::Looping => {
+// self.default_count += 1;
+// ctx.send_self_message_blocking(Msg::Looping)?;
+// }
+// Msg::Normal => {
+// self.normal_count += 1;
+// }
+// }
+// Ok(())
+// }
+// }
 
 #[tokio::test]
 async fn test_looping_async() -> anyhow::Result<()> {
@@ -471,15 +478,12 @@ async fn test_looping_async() -> anyhow::Result<()> {
     let looping_actor = LoopingActor::default();
     let (looping_actor_mailbox, looping_actor_handle) =
         universe.spawn_actor(looping_actor).spawn_async();
-    assert!(looping_actor_mailbox
-        .send_message(Msg::Normal)
-        .await
-        .is_ok());
+    assert!(looping_actor_mailbox.send_message(SingleShot).await.is_ok());
     looping_actor_handle.process_pending_and_observe().await;
     let (exit_status, state) = looping_actor_handle.quit().await;
     assert!(matches!(exit_status, ActorExitStatus::Quit));
-    assert_eq!(state.normal_count, 1);
-    assert!(state.default_count > 0);
+    assert_eq!(state.single_shot_count, 1);
+    assert!(state.loop_count > 0);
     Ok(())
 }
 
@@ -506,9 +510,17 @@ struct SummingActor {
     sum: u64,
 }
 
-impl Actor for SummingActor {
-    type Message = u64;
+impl Message for u64 {}
 
+#[async_trait]
+impl AsyncHandler<u64> for SummingActor {
+    async fn handle(&mut self, add: u64, _ctx: &ActorContext<Self>) -> Result<(), ActorExitStatus> {
+        self.sum += add;
+        Ok(())
+    }
+}
+
+impl Actor for SummingActor {
     type ObservableState = u64;
 
     fn observable_state(&self) -> Self::ObservableState {
@@ -517,16 +529,7 @@ impl Actor for SummingActor {
 }
 
 #[async_trait]
-impl AsyncActor for SummingActor {
-    async fn process_message(
-        &mut self,
-        add: Self::Message,
-        _ctx: &ActorContext<Self>,
-    ) -> Result<(), ActorExitStatus> {
-        self.sum += add;
-        Ok(())
-    }
-}
+impl AsyncActor for SummingActor {}
 
 #[derive(Default)]
 struct SpawningActor {
@@ -535,7 +538,6 @@ struct SpawningActor {
 }
 
 impl Actor for SpawningActor {
-    type Message = u64;
     type ObservableState = u64;
 
     fn observable_state(&self) -> Self::ObservableState {
@@ -545,18 +547,6 @@ impl Actor for SpawningActor {
 
 #[async_trait]
 impl AsyncActor for SpawningActor {
-    async fn process_message(
-        &mut self,
-        message: Self::Message,
-        ctx: &ActorContext<Self>,
-    ) -> Result<(), ActorExitStatus> {
-        let (mailbox, _) = self
-            .handle_opt
-            .get_or_insert_with(|| ctx.spawn_actor(SummingActor::default()).spawn_async());
-        ctx.send_message(mailbox, message).await?;
-        Ok(())
-    }
-
     async fn finalize(
         &mut self,
         _exit_status: &ActorExitStatus,
@@ -566,6 +556,21 @@ impl AsyncActor for SpawningActor {
             self.res = child_handler.process_pending_and_observe().await.state;
             child_handler.kill().await;
         }
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl AsyncHandler<u64> for SpawningActor {
+    async fn handle(
+        &mut self,
+        message: u64,
+        ctx: &ActorContext<Self>,
+    ) -> Result<(), ActorExitStatus> {
+        let (mailbox, _) = self
+            .handle_opt
+            .get_or_insert_with(|| ctx.spawn_actor(SummingActor::default()).spawn_async());
+        ctx.send_message(mailbox, message).await?;
         Ok(())
     }
 }
@@ -587,7 +592,6 @@ async fn test_actor_spawning_actor() -> anyhow::Result<()> {
 struct BuggyFinalizeActor;
 
 impl Actor for BuggyFinalizeActor {
-    type Message = BuggyMessage;
     type ObservableState = ();
 
     fn name(&self) -> String {
@@ -597,36 +601,26 @@ impl Actor for BuggyFinalizeActor {
     fn observable_state(&self) {}
 }
 
-/*
-impl SyncActor for BuggyFinalizeActor {
-    fn process_message(
-        &mut self,
-        _message: Self::Message,
-        _ctx: &ActorContext<Self>,
-    ) -> Result<(), ActorExitStatus> {
-        Ok(())
-    }
-
-    fn finalize(
-        &mut self,
-        _exit_status: &ActorExitStatus,
-        _ctx: &ActorContext<Self>,
-    ) -> anyhow::Result<()> {
-        anyhow::bail!("Finalize error")
-    }
-}
-*/
+// impl SyncActor for BuggyFinalizeActor {
+// fn process_message(
+// &mut self,
+// _message: Self::Message,
+// _ctx: &ActorContext<Self>,
+// ) -> Result<(), ActorExitStatus> {
+// Ok(())
+// }
+//
+// fn finalize(
+// &mut self,
+// _exit_status: &ActorExitStatus,
+// _ctx: &ActorContext<Self>,
+// ) -> anyhow::Result<()> {
+// anyhow::bail!("Finalize error")
+// }
+// }
 
 #[async_trait]
 impl AsyncActor for BuggyFinalizeActor {
-    async fn process_message(
-        &mut self,
-        _: BuggyMessage,
-        _: &ActorContext<Self>,
-    ) -> Result<(), ActorExitStatus> {
-        Ok(())
-    }
-
     async fn finalize(
         &mut self,
         _exit_status: &ActorExitStatus,

@@ -29,7 +29,7 @@ use tokio::sync::oneshot::Sender;
 use tokio::task::JoinHandle;
 use tracing::info;
 
-use crate::{Actor, ActorContext, AsyncActor};
+use crate::{Actor, ActorContext, ActorExitStatus, AsyncActor, AsyncHandler, Message};
 
 pub(crate) struct Callback(pub Pin<Box<dyn Future<Output = ()> + Sync + Send + 'static>>);
 
@@ -82,6 +82,8 @@ pub(crate) enum SchedulerMessage {
     },
 }
 
+impl Message for SchedulerMessage {}
+
 impl fmt::Debug for SchedulerMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -114,9 +116,10 @@ pub(crate) struct Scheduler {
     next_timeout: Option<JoinHandle<()>>,
 }
 
-impl Actor for Scheduler {
-    type Message = SchedulerMessage;
+#[async_trait]
+impl AsyncActor for Scheduler {}
 
+impl Actor for Scheduler {
     type ObservableState = SchedulerCounters;
 
     fn observable_state(&self) -> Self::ObservableState {
@@ -132,12 +135,12 @@ impl Actor for Scheduler {
 }
 
 #[async_trait]
-impl AsyncActor for Scheduler {
-    async fn process_message(
+impl AsyncHandler<SchedulerMessage> for Scheduler {
+    async fn handle(
         &mut self,
         message: SchedulerMessage,
-        ctx: &crate::ActorContext<Self>,
-    ) -> Result<(), crate::ActorExitStatus> {
+        ctx: &ActorContext<Self>,
+    ) -> Result<(), ActorExitStatus> {
         match message {
             SchedulerMessage::ScheduleEvent { timeout, callback } => {
                 self.process_schedule_event(timeout, callback, ctx).await;

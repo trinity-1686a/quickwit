@@ -21,13 +21,13 @@ use anyhow::Context;
 use async_trait::async_trait;
 use tokio::sync::watch::{self, Sender};
 use tokio::task::JoinHandle;
-use tracing::{debug, error, info, Instrument, info_span};
+use tracing::{debug, error, info, info_span, Instrument};
 
 use crate::actor::{process_command, ActorExitStatus};
 use crate::actor_handle::ActorHandle;
 use crate::actor_with_state_tx::ActorWithStateTx;
 use crate::mailbox::{CommandOrMessage, Inbox};
-use crate::{Actor, ActorContext, RecvError};
+use crate::{Actor, ActorContext, Message, RecvError};
 
 /// An async actor is executed on a regular tokio task.
 ///
@@ -49,16 +49,16 @@ pub trait AsyncActor: Actor + Sized {
         Ok(())
     }
 
-    /// Processes a message.
-    ///
-    /// If an exit status is returned as an error, the actor will exit.
-    /// It will stop processing more message, the finalize method will be called,
-    /// and its exit status will be the one defined in the error.
-    async fn process_message(
-        &mut self,
-        message: Self::Message,
-        ctx: &ActorContext<Self>,
-    ) -> Result<(), ActorExitStatus>;
+    // /// Processes a message.
+    // ///
+    // /// If an exit status is returned as an error, the actor will exit.
+    // /// It will stop processing more message, the finalize method will be called,
+    // /// and its exit status will be the one defined in the error.
+    // async fn process_message(
+    //     &mut self,
+    //     message: Self::Message,
+    //     ctx: &ActorContext<Self>,
+    // ) -> Result<(), ActorExitStatus>;
 
     /// Hook  that can be set up to define what should happen upon actor exit.
     /// This hook is called only once.
@@ -144,12 +144,12 @@ async fn process_msg<A: AsyncActor>(
             ctx.process();
             process_command(actor, cmd, ctx, state_tx)
         }
-        Ok(CommandOrMessage::Message(msg)) => {
-            ctx.process();
-            let span = info_span!("", msg_id = &msg_id);
-            // let span = actor.message_span(msg_id);
-            actor.process_message(msg, ctx).instrument(span).await.err()
-        }
+        // Ok(CommandOrMessage::Message(msg)) => {
+        //     ctx.process();
+        //     let span = info_span!("", msg_id = &msg_id);
+        //     // let span = actor.message_span(msg_id);
+        //     actor.process_message(msg, ctx).instrument(span).await.err()
+        // }
         Ok(CommandOrMessage::AsyncMessage(mut msg)) => {
             ctx.process();
             let span = info_span!("", msg_id = &msg_id);
@@ -215,11 +215,12 @@ async fn async_actor_loop<A: AsyncActor>(
 }
 
 #[async_trait::async_trait]
-pub trait AsyncHandler<M>: AsyncActor {
+pub trait AsyncHandler<M: Message>: AsyncActor {
     /// Processes a message.
     ///
     /// If an exit status is returned as an error, the actor will exit.
     /// It will stop processing more message, the finalize method will be called,
     /// and its exit status will be the one defined in the error.
-    async fn handle(&mut self, message: M, ctx: &ActorContext<Self>) -> Result<(), ActorExitStatus>;
+    async fn handle(&mut self, message: M, ctx: &ActorContext<Self>)
+        -> Result<(), ActorExitStatus>;
 }

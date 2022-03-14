@@ -23,7 +23,7 @@ use crate::channel_with_priority::Priority;
 use crate::mailbox::{Command, CommandOrMessage};
 use crate::scheduler::{SchedulerMessage, TimeShift};
 use crate::spawn_builder::SpawnBuilder;
-use crate::{Actor, KillSwitch, Mailbox, QueueCapacity, Scheduler};
+use crate::{Actor, AsyncHandler, KillSwitch, Mailbox, Message, QueueCapacity, Scheduler};
 
 /// Universe serves as the top-level context in which Actor can be spawned.
 /// It is *not* a singleton. A typical application will usually have only one universe hosting all
@@ -85,20 +85,28 @@ impl Universe {
     }
 
     /// `async` version of `send_message`
-    pub async fn send_message<A: Actor>(
+    pub async fn send_message<A: Actor, M>(
         &self,
         mailbox: &Mailbox<A>,
-        message: A::Message,
-    ) -> Result<(), crate::SendError> {
+        message: M,
+    ) -> Result<(), crate::SendError>
+    where
+        A: AsyncHandler<M>,
+        M: Message,
+    {
         mailbox.send_message(message).await
     }
 
     /// Inform an actor to process pending message and then stop processing new messages
     /// and exit successfully.
-    pub async fn send_exit_with_success<A: Actor>(
+    pub async fn send_exit_with_success<A: Actor, M>(
         &self,
         mailbox: &Mailbox<A>,
-    ) -> Result<(), crate::SendError> {
+    ) -> Result<(), crate::SendError>
+    where
+        A: AsyncHandler<M>,
+        M: Message,
+    {
         mailbox
             .send_with_priority(
                 CommandOrMessage::Command(Command::ExitWithSuccess),
@@ -120,7 +128,9 @@ mod tests {
 
     use async_trait::async_trait;
 
-    use crate::{Actor, ActorContext, ActorExitStatus, AsyncActor, Universe};
+    use crate::{
+        Actor, ActorContext, ActorExitStatus, AsyncActor, AsyncHandler, Message, Universe,
+    };
 
     #[derive(Default)]
     pub struct ActorWithSchedule {
@@ -128,8 +138,6 @@ mod tests {
     }
 
     impl Actor for ActorWithSchedule {
-        type Message = ();
-
         type ObservableState = usize;
 
         fn observable_state(&self) -> usize {
@@ -137,19 +145,27 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
+    struct Loop;
+
+    impl Message for Loop {}
+
     #[async_trait]
     impl AsyncActor for ActorWithSchedule {
         async fn initialize(&mut self, ctx: &ActorContext<Self>) -> Result<(), ActorExitStatus> {
-            self.process_message((), ctx).await
+            self.handle(Loop, ctx).await
         }
+    }
 
-        async fn process_message(
+    #[async_trait]
+    impl AsyncHandler<Loop> for ActorWithSchedule {
+        async fn handle(
             &mut self,
-            _: (),
+            _msg: Loop,
             ctx: &ActorContext<Self>,
         ) -> Result<(), ActorExitStatus> {
             self.count += 1;
-            ctx.schedule_self_msg(Duration::from_secs(60), ()).await;
+            ctx.schedule_self_msg(Duration::from_secs(60), Loop).await;
             Ok(())
         }
     }

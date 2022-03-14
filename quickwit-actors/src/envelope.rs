@@ -16,14 +16,16 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-//
 
-use crate::{ActorContext, ActorExitStatus, AsyncActor, Actor, AsyncHandler};
-
+use crate::{Actor, ActorContext, ActorExitStatus, AsyncHandler, Message};
 
 #[async_trait::async_trait]
 pub(crate) trait AsyncEnvelope<A: Actor>: Send + Sync {
-    async fn process(&mut self, actor: &mut A, ctx: &ActorContext<A>) -> Result<(), ActorExitStatus>;
+    async fn process(
+        &mut self,
+        actor: &mut A,
+        ctx: &ActorContext<A>,
+    ) -> Result<(), ActorExitStatus>;
 }
 
 struct AsyncEnvelopeImpl<M: Send> {
@@ -32,9 +34,16 @@ struct AsyncEnvelopeImpl<M: Send> {
 
 #[async_trait::async_trait]
 impl<A, M: Send + Sync> AsyncEnvelope<A> for AsyncEnvelopeImpl<M>
-    where A: AsyncActor + AsyncHandler<M> {
-    async fn process(&mut self, actor: &mut A, ctx: &ActorContext<A>) -> Result<(), ActorExitStatus> {
-        if let Some(msg ) = self.message.take() {
+where
+    A: AsyncHandler<M>,
+    M: Message,
+{
+    async fn process(
+        &mut self,
+        actor: &mut A,
+        ctx: &ActorContext<A>,
+    ) -> Result<(), ActorExitStatus> {
+        if let Some(msg) = self.message.take() {
             actor.handle(msg, ctx).await?;
         }
         // TODO
@@ -42,17 +51,18 @@ impl<A, M: Send + Sync> AsyncEnvelope<A> for AsyncEnvelopeImpl<M>
     }
 }
 
-
 impl<M: Send> From<M> for AsyncEnvelopeImpl<M> {
     fn from(message: M) -> Self {
         AsyncEnvelopeImpl {
-            message: Some(message)
+            message: Some(message),
         }
-
     }
 }
 
-fn wrap_in_sync_envelope<A, M: 'static + Send + Sync>(msg: M) -> Box<dyn AsyncEnvelope<A>>
-    where A: AsyncHandler<M> {
+pub(crate) fn wrap_in_async_envelope<A, M>(msg: M) -> Box<dyn AsyncEnvelope<A>>
+where
+    A: AsyncHandler<M>,
+    M: Message,
+{
     Box::new(AsyncEnvelopeImpl::from(msg)) as Box<dyn AsyncEnvelope<A>>
 }

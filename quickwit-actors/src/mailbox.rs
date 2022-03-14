@@ -25,8 +25,8 @@ use std::sync::Arc;
 use tokio::sync::oneshot;
 
 use crate::channel_with_priority::{Priority, Receiver, Sender};
-use crate::envelope::AsyncEnvelope;
-use crate::{Actor, QueueCapacity, RecvError, SendError};
+use crate::envelope::{wrap_in_async_envelope, AsyncEnvelope};
+use crate::{Actor, AsyncActor, AsyncHandler, Message, QueueCapacity, RecvError, SendError};
 
 /// A mailbox is the object that makes it possible to send a message
 /// to an actor.
@@ -63,7 +63,7 @@ impl<A: Actor> Mailbox<A> {
 }
 
 pub(crate) enum CommandOrMessage<A: Actor> {
-    Message(A::Message),
+    // Message(A::Message),
     AsyncMessage(Box<dyn AsyncEnvelope<A>>),
     Command(Command),
 }
@@ -202,15 +202,29 @@ impl<A: Actor> Mailbox<A> {
     /// SendError is returned if the actor has already exited.
     ///
     /// (See also [Self::send_blocking()])
-    pub(crate) async fn send_message(&self, msg: A::Message) -> Result<(), SendError> {
-        self.send_with_priority(CommandOrMessage::Message(msg), Priority::Low)
-            .await
+    pub(crate) async fn send_message<M>(&self, msg: M) -> Result<(), SendError>
+    where
+        A: AsyncHandler<M>,
+        M: Message,
+    {
+        self.send_with_priority(
+            CommandOrMessage::AsyncMessage(wrap_in_async_envelope(msg)),
+            Priority::Low,
+        )
+        .await
     }
 
     /// Send a message to the actor in a blocking fashion.
     /// When possible, prefer using [Self::send()].
-    pub(crate) fn send_message_blocking(&self, msg: A::Message) -> Result<(), SendError> {
-        self.send_with_priority_blocking(CommandOrMessage::Message(msg), Priority::Low)
+    pub(crate) fn send_message_blocking<M>(&self, msg: M) -> Result<(), SendError>
+    where
+        A: AsyncHandler<M>,
+        M: Message,
+    {
+        self.send_with_priority_blocking(
+            CommandOrMessage::AsyncMessage(wrap_in_async_envelope(msg)),
+            Priority::Low,
+        )
     }
 
     pub(crate) async fn send_command(&self, command: Command) -> Result<(), SendError> {
@@ -218,11 +232,12 @@ impl<A: Actor> Mailbox<A> {
             .await
     }
 
-    pub fn try_send_message(&self, message: A::Message) -> Result<(), SendError> {
-        self.inner
-            .tx
-            .try_send(CommandOrMessage::Message(message), Priority::Low)
-    }
+    // pub fn try_send_message<M>(&self, message: M)  -> Result<(), SendError>
+    // where A: AsyncHandler<M> {
+    //     self.inner
+    //         .tx
+    //         .try_send(CommandOrMessage::Message(message), Priority::Low)
+    // }
 }
 
 pub struct Inbox<A: Actor> {
@@ -253,22 +268,22 @@ impl<A: Actor> Inbox<A> {
             .recv_high_priority_timeout_blocking(crate::message_timeout())
     }
 
-    /// Destroys the inbox and returns the list of pending messages.
-    /// Commands are ignored.
-    ///
-    /// Warning this iterator might never be exhausted if there is a living
-    /// mailbox associated to it.
-    pub fn drain_available_message_for_test(&self) -> Vec<A::Message> {
-        self.rx
-            .drain_low_priority()
-            .into_iter()
-            .flat_map(|command_or_message| match command_or_message {
-                CommandOrMessage::Message(msg) => Some(msg),
-                CommandOrMessage::Command(_) => None,
-                CommandOrMessage::AsyncMessage(_) => todo!(),
-            })
-            .collect()
-    }
+    // /// Destroys the inbox and returns the list of pending messages.
+    // /// Commands are ignored.
+    // ///
+    // /// Warning this iterator might never be exhausted if there is a living
+    // /// mailbox associated to it.
+    // pub fn drain_available_message_for_test(&self) -> Vec<A::Message> {
+    //     self.rx
+    //         .drain_low_priority()
+    //         .into_iter()
+    //         .flat_map(|command_or_message| match command_or_message {
+    //             CommandOrMessage::Message(msg) => Some(msg),
+    //             CommandOrMessage::Command(_) => None,
+    //             CommandOrMessage::AsyncMessage(_) => todo!(),
+    //         })
+    //         .collect()
+    // }
 
     // /// Destroys the inbox and returns the list of pending messages or commands.
     // ///
