@@ -120,6 +120,7 @@ impl From<SendError> for ActorExitStatus {
 pub trait Actor: Send + Sync + Sized + 'static {
     /// Type of message that can be received by the actor.
     type Message: Send + Sync + fmt::Debug;
+
     /// Piece of state that can be copied for assert in unit test, admin, etc.
     type ObservableState: Send + Sync + Clone + fmt::Debug;
     /// A name identifying the type of actor.

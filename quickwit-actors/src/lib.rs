@@ -37,6 +37,7 @@ mod mailbox;
 mod observation;
 mod progress;
 mod scheduler;
+mod envelope;
 mod spawn_builder;
 // mod sync_actor;
 #[cfg(test)]
@@ -45,7 +46,7 @@ mod universe;
 
 pub use actor::{Actor, ActorExitStatus};
 pub use actor_handle::{ActorHandle, Health, Supervisable};
-pub use async_actor::AsyncActor;
+pub use async_actor::{AsyncActor, AsyncHandler};
 pub use kill_switch::KillSwitch;
 pub use observation::{Observation, ObservationType};
 pub use progress::{Progress, ProtectedZoneGuard};

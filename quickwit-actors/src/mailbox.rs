@@ -66,22 +66,6 @@ pub enum CommandOrMessage<A: Actor> {
     Command(Command),
 }
 
-impl<A: Actor> CommandOrMessage<A> {
-    pub fn message(self) -> Option<A::Message> {
-        match self {
-            CommandOrMessage::Message(message) => Some(message),
-            CommandOrMessage::Command(_) => None,
-        }
-    }
-
-    pub fn command(self) -> Option<Command> {
-        match self {
-            CommandOrMessage::Message(_) => None,
-            CommandOrMessage::Command(command) => Some(command),
-        }
-    }
-}
-
 impl<A: Actor> From<Command> for CommandOrMessage<A> {
     fn from(cmd: Command) -> Self {
         CommandOrMessage::Command(cmd)
@@ -160,7 +144,7 @@ pub enum Command {
 }
 
 impl fmt::Debug for Command {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Command::Pause => write!(f, "Pause"),
             Command::Resume => write!(f, "Resume"),

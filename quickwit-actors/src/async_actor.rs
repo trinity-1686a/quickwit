@@ -207,3 +207,13 @@ async fn async_actor_loop<A: AsyncActor>(
     ctx.exit(&exit_status);
     exit_status
 }
+
+#[async_trait::async_trait]
+pub trait AsyncHandler<M>: AsyncActor {
+    /// Processes a message.
+    ///
+    /// If an exit status is returned as an error, the actor will exit.
+    /// It will stop processing more message, the finalize method will be called,
+    /// and its exit status will be the one defined in the error.
+    async fn handle(&mut self, message: M, ctx: &ActorContext<Self>) -> Result<(), ActorExitStatus>;
+}

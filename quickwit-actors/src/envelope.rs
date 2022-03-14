@@ -18,20 +18,24 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 //
 
+use crate::{ActorContext, ActorExitStatus, AsyncActor, Actor, AsyncHandler};
 
-pub(crate) trait SyncEnvelope<A: SyncActor> {
-    fn process(&mut self, actor: &mut A, ctx: &ActorContext<A>) -> Result<(), ActorExitStatus>;
+
+#[async_trait::async_trait]
+pub(crate) trait AsyncEnvelope<A: AsyncActor> {
+    async fn process(&mut self, actor: &mut A, ctx: &ActorContext<A>) -> Result<(), ActorExitStatus>;
 }
 
-struct EnvelopeImpl<M: Send> {
+struct AsyncEnvelopeImpl<M: Send> {
     message: Option<M>,
 }
 
-impl<A, M: Send> Envelope<A> for SyncEnvelopeImpl<M>
-    where A: SyncActor + Handler<M> {
-    fn process(&mut self, actor: &mut A, ctx: &ActorContext<A>) -> Result<(), ActorExitStatus> {
+#[async_trait::async_trait]
+impl<A, M: Send> AsyncEnvelope<A> for AsyncEnvelopeImpl<M>
+    where A: AsyncActor + AsyncHandler<M> {
+    async fn process(&mut self, actor: &mut A, ctx: &ActorContext<A>) -> Result<(), ActorExitStatus> {
         if let Some(msg ) = self.message.take() {
-            actor.handle(msg, ctx);
+            actor.handle(msg, ctx).await?;
         }
         // TODO
         Ok(())
@@ -39,21 +43,16 @@ impl<A, M: Send> Envelope<A> for SyncEnvelopeImpl<M>
 }
 
 
-impl<M: Send> From<M> for SyncEnvelopeImpl<M> {
+impl<M: Send> From<M> for AsyncEnvelopeImpl<M> {
     fn from(message: M) -> Self {
-        SyncEnvelopeImpl {
+        AsyncEnvelopeImpl {
             message: Some(message)
         }
 
     }
 }
 
-
-fn wrap_in_sync_envelope<A, M: 'static + Send>(msg: M) -> Box<dyn SyncEnvelope<A>>
-    where A: Handler<M> {
-    Box::new(SyncEnvelopeImpl::from(msg)) as Box<dyn SyncEnvelope<A>>
-}
-pub enum CommandOrMessage<A: Actor> {
-    Message(Box<dyn SyncEnvelope<A>>),
-    Command(Command),
+fn wrap_in_sync_envelope<A, M: 'static + Send>(msg: M) -> Box<dyn AsyncEnvelope<A>>
+    where A: AsyncHandler<M> {
+    Box::new(AsyncEnvelopeImpl::from(msg)) as Box<dyn AsyncEnvelope<A>>
 }
