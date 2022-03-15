@@ -27,7 +27,9 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 fn deserialize_json_file<T>(path: &Path) -> anyhow::Result<T>
-where for<'a> T: Deserialize<'a> {
+where
+    for<'a> T: Deserialize<'a>,
+{
     let payload = std::fs::read(path)?;
     let deserialized: T = serde_json::from_slice(&payload)?;
     Ok(deserialized)
@@ -49,7 +51,9 @@ where
 }
 
 fn test_backward_compatibility<T>(test_dir: &Path, test: impl Fn(&T, &T)) -> anyhow::Result<()>
-where for<'a> T: Deserialize<'a> {
+where
+    for<'a> T: Deserialize<'a>,
+{
     for entry in fs::read_dir(&test_dir)? {
         let entry = entry?;
         let path = entry.path();
@@ -62,7 +66,9 @@ where for<'a> T: Deserialize<'a> {
 }
 
 fn test_and_update_expected_files_single_case<T>(expected_path: &Path) -> anyhow::Result<bool>
-where for<'a> T: Serialize + Deserialize<'a> {
+where
+    for<'a> T: Serialize + Deserialize<'a>,
+{
     let expected: T = deserialize_json_file(Path::new(&expected_path))?;
     let expected_old_json_value: serde_json::Value =
         deserialize_json_file(Path::new(&expected_path))?;
@@ -79,7 +85,9 @@ where for<'a> T: Serialize + Deserialize<'a> {
 }
 
 fn test_and_update_expected_files<T>(test_dir: &Path) -> anyhow::Result<()>
-where for<'a> T: Deserialize<'a> + Serialize {
+where
+    for<'a> T: Deserialize<'a> + Serialize,
+{
     let mut updated_expected_files = Vec::new();
     for entry in fs::read_dir(&test_dir)? {
         let entry = entry?;
@@ -100,7 +108,9 @@ where for<'a> T: Deserialize<'a> + Serialize {
 }
 
 fn test_and_create_new_test<T>(test_dir: &Path, sample: T) -> anyhow::Result<()>
-where for<'a> T: Serialize {
+where
+    for<'a> T: Serialize,
+{
     let sample_json_value = serde_json::to_value(&sample)?;
     let version: &str = sample_json_value
         .as_object()

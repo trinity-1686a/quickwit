@@ -390,7 +390,9 @@ impl From<UnversionedIndexMetadata> for IndexMetadata {
 
 impl<'de> Deserialize<'de> for IndexMetadata {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where D: Deserializer<'de> {
+    where
+        D: Deserializer<'de>,
+    {
         let value: serde_json::value::Value = serde_json::value::Value::deserialize(deserializer)?;
         let has_version_tag = value
             .as_object()

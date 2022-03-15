@@ -31,6 +31,7 @@ use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use futures::future::try_join_all;
 use quickwit_config::SourceConfig;
 use quickwit_doc_mapper::tag_pruning::TagFilterAst;
 use quickwit_storage::Storage;
@@ -39,17 +40,18 @@ use tracing::error;
 
 use self::file_backed_index::FileBackedIndex;
 pub use self::file_backed_metastore_factory::FileBackedMetastoreFactory;
-use self::store_operations::{delete_index, fetch_index, index_exists, put_index};
+use self::store_operations::{delete_index, fetch_index, index_exists, put_index, fetch_indexes, put_indexes, IndexState};
 use crate::checkpoint::CheckpointDelta;
 use crate::{
     IndexMetadata, Metastore, MetastoreError, MetastoreResult, Split, SplitMetadata, SplitState,
 };
 
-/// Metastore that simply stores all of the metadata associated to each index
-/// into as many files.
+/// Metastore that stores all of the metadata associated to each index
+/// into as many files and tracks indexes states in `Map<index_id: String, IndexState>`.
 pub struct FileBackedMetastore {
     storage: Arc<dyn Storage>,
     per_index_metastores: RwLock<HashMap<String, Arc<Mutex<FileBackedIndex>>>>,
+    indexes_states: RwLock<HashMap<String, IndexState>>,
     polling_interval_opt: Option<Duration>,
 }
 
@@ -88,9 +90,13 @@ fn spawn_metastore_polling_task(
 impl FileBackedMetastore {
     /// Creates a [`FileBackedMetastore`] for tests.
     #[doc(hidden)]
-    pub fn for_test() -> Self {
-        use quickwit_storage::RamStorage;
-        FileBackedMetastore::new(Arc::new(RamStorage::default()))
+    pub fn for_test(storage: Arc<dyn Storage>) -> Self {
+        Self {
+            storage,
+            per_index_metastores: Default::default(),
+            indexes_states: Default::default(),
+            polling_interval_opt: None,
+        }
     }
 
     /// Sets the polling interval.
@@ -106,12 +112,49 @@ impl FileBackedMetastore {
     }
 
     /// Creates a [`FileBackedMetastore`] for a specified storage.
-    pub fn new(storage: Arc<dyn Storage>) -> Self {
-        Self {
+    /// Indexes states are immediately fetched from the storage.
+    pub async fn try_new(storage: Arc<dyn Storage>) -> MetastoreResult<Self> {
+        let indexes = fetch_indexes(&*storage).await?;
+        Ok(Self {
             storage,
             per_index_metastores: Default::default(),
+            indexes_states: RwLock::new(indexes),
             polling_interval_opt: None,
+        })
+    }
+
+    /// Save index metadata in per_index_metastores and on the storage.
+    async fn save_index_metadata(&self, index_metadata: IndexMetadata) -> MetastoreResult<()> {
+        let index_id = index_metadata.index_id.clone();
+        // We pick the outer lock here, so that we enter a critical section.
+        let mut per_index_metastores_wlock = self.per_index_metastores.write().await;
+        let exists = per_index_metastores_wlock.contains_key(&index_metadata.index_id)
+            || index_exists(&*self.storage, &index_metadata.index_id).await?;
+        if exists {
+            return Err(MetastoreError::IndexAlreadyExists {
+                index_id: index_metadata.index_id.clone(),
+            });
         }
+        let index = FileBackedIndex::from(index_metadata);
+        put_index(&*self.storage, &index).await?;
+        let index_mutex = Arc::new(Mutex::new(index));
+        per_index_metastores_wlock.insert(index_id, index_mutex);
+        Ok(())
+    }
+
+    async fn mutate_indexes_states(
+        &self,
+        mutation: impl FnOnce(&mut HashMap<String, IndexState>) -> crate::MetastoreResult<()>,
+    ) -> MetastoreResult<()> {
+        let mut indexes_states_wlock = self.indexes_states.write().await;
+        let mut indexes_states = indexes_states_wlock.clone();
+        mutation(&mut indexes_states)?;
+        put_indexes(&*self.storage, &indexes_states)
+            .await
+            .map(|_| {
+                *indexes_states_wlock = indexes_states;
+                ()
+            })
     }
 
     async fn mutate(
@@ -119,6 +162,8 @@ impl FileBackedMetastore {
         index_id: &str,
         mutation: impl FnOnce(&mut FileBackedIndex) -> crate::MetastoreResult<bool>,
     ) -> MetastoreResult<()> {
+        // On index mutation, first fix indexes state if it's in `Creating` and `Deleting` state.
+        self.repair_index_state(index_id).await?;
         let mut locked_index = self.get_locked_index(index_id).await?;
 
         let mut index = locked_index.clone();
@@ -164,7 +209,7 @@ impl FileBackedMetastore {
         index_id: &str,
     ) -> MetastoreResult<OwnedMutexGuard<FileBackedIndex>> {
         loop {
-            let index_mutex = self.index(index_id).await?;
+            let index_mutex = self.file_backed_index(index_id).await?;
             let index_lock = index_mutex.lock_owned().await;
             if !index_lock.discarded {
                 return Ok(index_lock);
@@ -179,7 +224,7 @@ impl FileBackedMetastore {
     /// and might trigger an error.
     ///
     /// For a given index_id, only copies of the same index_view are returned.
-    async fn index(&self, index_id: &str) -> MetastoreResult<Arc<Mutex<FileBackedIndex>>> {
+    async fn file_backed_index(&self, index_id: &str) -> MetastoreResult<Arc<Mutex<FileBackedIndex>>> {
         {
             // Happy path!
             // If the object is already in our cache then we just return a copy
@@ -223,6 +268,40 @@ impl FileBackedMetastore {
         Ok(index_mutex)
     }
 
+    async fn repair_index_state(&self, index_id: &str) -> MetastoreResult<()> {
+        {
+            // Take a read lock, if the index is in `Creating` or `Deleting` state, then repair it. 
+            let indexes_states_rlock = self.indexes_states.read().await;
+            if let Some(index_state) = indexes_states_rlock.get(index_id) {
+                match index_state {
+                    IndexState::Alive => return Ok(()),
+                    _ => ()
+                }
+            } else {
+                // TODO: repair should raise error unless we are creating an index.
+                return Ok(());
+            }
+        }
+        // Repair index state.
+        let mut indexes_states_wlock = self.indexes_states.write().await;
+        let mut indexes_states = indexes_states_wlock.clone();
+        match indexes_states.get(index_id) {
+            Some(IndexState::Creating(index_metadata)) => {
+                self.save_index_metadata(index_metadata.clone()).await?;
+            },
+            Some(IndexState::Deleting) => {
+                indexes_states.remove(index_id);
+            },
+            _ => ()
+        }
+        put_indexes(&*self.storage, &indexes_states)
+            .await
+            .map(|_| {
+                *indexes_states_wlock = indexes_states;
+                ()
+            })
+    }
+
     // Helper used for testing to obtain the data associated with the given index.
     #[cfg(test)]
     async fn get_index(&self, index_id: &str) -> MetastoreResult<FileBackedIndex> {
@@ -239,33 +318,38 @@ impl FileBackedMetastore {
 impl Metastore for FileBackedMetastore {
     /// -------------------------------------------------------------------------------
     /// Mutations over the high-level index.
-
     async fn create_index(&self, index_metadata: IndexMetadata) -> MetastoreResult<()> {
-        // We pick the outer lock here, so that we enter a critical section.
-        let mut per_index_metastores_wlock = self.per_index_metastores.write().await;
+        let index_id = index_metadata.index_id.clone();
+        self.repair_index_state(&index_id).await?;
+        // 1. Set index state to `Creating`.
+        // TODO: raise exception if index is already in the map.
+        self.mutate_indexes_states(|indexes_states| {
+            indexes_states.insert(index_id.clone(), IndexState::Creating(index_metadata.clone()));
+            Ok(())
+        }).await?;
 
-        let exists = per_index_metastores_wlock.contains_key(&index_metadata.index_id)
-            || index_exists(&*self.storage, &index_metadata.index_id).await?;
+        // 2. Save index.
+        self.save_index_metadata(index_metadata).await?;
 
-        if exists {
-            return Err(MetastoreError::IndexAlreadyExists {
-                index_id: index_metadata.index_id.clone(),
-            });
-        }
-
-        let index = FileBackedIndex::from(index_metadata);
-
-        put_index(&*self.storage, &index).await?;
-
-        let index_id = index.index_id().to_string();
-        let index_mutex = Arc::new(Mutex::new(index));
-
-        per_index_metastores_wlock.insert(index_id, index_mutex);
+        // 3. Set index state to `Alive`.
+        self.mutate_indexes_states(|indexes_states| {
+            indexes_states.insert(index_id.clone(), IndexState::Alive);
+            Ok(())
+        }).await?;
 
         Ok(())
     }
 
     async fn delete_index(&self, index_id: &str) -> MetastoreResult<()> {
+        self.repair_index_state(index_id).await?;
+        // 1. Set index state to `Deleting`.
+        // TODO: raise exception if index is in the map?
+        self.mutate_indexes_states(|indexes_states| {
+            indexes_states.insert(index_id.to_string(), IndexState::Deleting);
+            Ok(())
+        }).await?;
+
+        // 2. Delete index metadata.
         // We pick the outer lock here, so that we enter a critical section.
         let mut per_index_metastores_wlock = self.per_index_metastores.write().await;
 
@@ -274,9 +358,14 @@ impl Metastore for FileBackedMetastore {
         match &delete_res {
             Ok(()) |
             // If the index file does not exist, we still need to return an error,
-            // but it makes sense to ensure that the cache is up to date.
+            // but it makes sense to ensure that the index state is deleted.
             Err(MetastoreError::IndexDoesNotExist { .. }) => {
                 per_index_metastores_wlock.remove(index_id);
+                // 3. Delete index state.
+                self.mutate_indexes_states(|indexes_states| {
+                    indexes_states.remove(index_id);
+                    Ok(())
+                }).await?;
             },
             _ => {}
         }
@@ -382,6 +471,19 @@ impl Metastore for FileBackedMetastore {
             .await
     }
 
+    async fn list_indexes(&self) -> MetastoreResult<Vec<IndexMetadata>> {
+        let indexes = fetch_indexes(&*self.storage).await?;
+        println!("{:?}", indexes);
+        try_join_all(indexes.iter()
+            .filter_map(|(index_id, index_state)| {
+                match index_state {
+                    IndexState::Alive => Some(index_id),
+                    _ => None
+                }
+            })
+            .map(|index_id| self.index_metadata(index_id))).await
+    }
+
     fn uri(&self) -> String {
         self.storage.uri()
     }
@@ -397,7 +499,7 @@ impl Metastore for FileBackedMetastore {
 impl crate::tests::test_suite::DefaultForTest for FileBackedMetastore {
     async fn default_for_test() -> Self {
         use quickwit_storage::RamStorage;
-        FileBackedMetastore::new(Arc::new(RamStorage::default()))
+        FileBackedMetastore::for_test(Arc::new(RamStorage::default()))
     }
 }
 
@@ -406,6 +508,7 @@ metastore_test_suite!(crate::FileBackedMetastore);
 #[cfg(test)]
 mod tests {
     use std::ops::RangeInclusive;
+    use std::path::Path;
     use std::sync::Arc;
 
     use chrono::Utc;
@@ -413,6 +516,7 @@ mod tests {
     use quickwit_storage::{MockStorage, RamStorage, Storage, StorageErrorKind};
     use rand::Rng;
     use tokio::time::Duration;
+    use crate::tests::test_suite::DefaultForTest;
 
     use super::store_operations::{meta_path, put_index_given_index_id};
     use super::{FileBackedIndex, FileBackedMetastore};
@@ -421,7 +525,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_file_backed_metastore_index_exists() {
-        let metastore = FileBackedMetastore::for_test();
+        let metastore = FileBackedMetastore::default_for_test().await;
         let index_id = "my-index";
 
         {
@@ -444,7 +548,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_file_backed_metastore_get_index() {
-        let metastore = FileBackedMetastore::for_test();
+        let metastore = FileBackedMetastore::default_for_test().await;
         let index_id = "my-index";
 
         {
@@ -494,9 +598,9 @@ mod tests {
             .returning(|_| Ok(false));
         mock_storage
             .expect_put()
-            .times(2)
+            .times(4)
             .returning(move |path, put_payload| {
-                assert_eq!(path, meta_path("my-index"));
+                assert!(path == Path::new("indexes.json") || path == meta_path("my-index"));
                 block_on(ram_storage_clone.put(path, put_payload))
             });
         mock_storage
@@ -507,7 +611,7 @@ mod tests {
             Err(StorageErrorKind::Io
                 .with_error(anyhow::anyhow!("Oops. Some network problem maybe?")))
         });
-        let metastore = FileBackedMetastore::new(Arc::new(mock_storage));
+        let metastore = FileBackedMetastore::for_test(Arc::new(mock_storage));
 
         let index_id = "my-index";
         let source_id = "my-source";
@@ -557,7 +661,7 @@ mod tests {
     #[tokio::test]
     async fn test_file_backed_metastore_get_index_checks_for_inconsistent_index_id(
     ) -> crate::MetastoreResult<()> {
-        let metastore = FileBackedMetastore::for_test();
+        let metastore = FileBackedMetastore::default_for_test().await;
         let storage = metastore.storage();
         let index_id = "my-index";
         let index_metadata =
@@ -580,7 +684,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_file_backed_metastore_wrt_directly_visible() -> crate::MetastoreResult<()> {
-        let metastore = FileBackedMetastore::for_test();
+        let metastore = FileBackedMetastore::default_for_test().await;
 
         let index_id = "my-index";
         let index_metadata = IndexMetadata::for_test(index_id, "ram://indexes/my-index");
@@ -605,8 +709,8 @@ mod tests {
     async fn test_file_backed_metastore_polling() -> crate::MetastoreResult<()> {
         let storage = Arc::new(RamStorage::default());
 
-        let metastore_wrt = FileBackedMetastore::new(storage.clone());
-        let mut metastore_read = FileBackedMetastore::new(storage);
+        let metastore_wrt = FileBackedMetastore::for_test(storage.clone());
+        let mut metastore_read = FileBackedMetastore::for_test(storage);
         let polling_interval = Duration::from_millis(20);
         metastore_read.set_polling_interval(Some(polling_interval));
 
@@ -637,7 +741,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
     async fn test_file_backed_metastore_race_condition() {
-        let metastore = Arc::new(FileBackedMetastore::for_test());
+        let metastore = Arc::new(FileBackedMetastore::default_for_test().await);
         let index_id = "my-index";
         let source_id = "my-source";
 

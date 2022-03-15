@@ -132,7 +132,9 @@ impl MetastoreFactory for FileBackedMetastoreFactory {
                     })
                 }
             })?;
-        let mut file_backed_metastore = FileBackedMetastore::new(storage);
+        let mut file_backed_metastore = FileBackedMetastore::try_new(storage)
+            .await
+            .map_err(MetastoreResolverError::FailedToOpenMetastore)?;
         file_backed_metastore.set_polling_interval(polling_interval_opt);
         let unique_metastore_for_uri = self
             .cache_metastore(uri, Arc::new(file_backed_metastore))

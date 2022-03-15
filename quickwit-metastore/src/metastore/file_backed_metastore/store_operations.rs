@@ -17,15 +17,31 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use serde::{Deserialize, Serialize};
 
 use quickwit_storage::{Storage, StorageError, StorageErrorKind};
 
 use crate::metastore::file_backed_metastore::file_backed_index::FileBackedIndex;
-use crate::{MetastoreError, MetastoreResult};
+use crate::{MetastoreError, MetastoreResult, IndexMetadata};
 
-/// Metadata file managed by [`FileBackedMetastore`].
+/// Indexes states file managed by [`FileBackedMetastore`].
+const INDEXES_FILENAME: &str = "indexes.json";
+
+/// Index metadata file managed by [`FileBackedMetastore`].
 const META_FILENAME: &str = "metastore.json";
+
+/// TODO: add docs.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum IndexState {
+    /// Index is being created and waiting for its metadata to be saved on the storage.
+    Creating(IndexMetadata),
+    /// Index is alive.
+    Alive,
+    /// Index is being deleted and waiting for its metadata file to be removed from the storage.
+    Deleting,
+}
 
 /// Path to the metadata file from the given index ID.
 pub(crate) fn meta_path(index_id: &str) -> PathBuf {
@@ -45,6 +61,42 @@ fn convert_error(index_id: &str, storage_err: StorageError) -> MetastoreError {
             cause: anyhow::anyhow!(storage_err),
         },
     }
+}
+
+pub(crate) async fn fetch_indexes(storage: &dyn Storage) -> MetastoreResult<HashMap<String, IndexState>> {
+    let indexes_list_path = Path::new(INDEXES_FILENAME);
+    let exists = storage
+        .exists(&indexes_list_path)
+        .await
+        .map_err(|storage_err| convert_error("indexes", storage_err))?;
+    if !exists {
+        return Ok(HashMap::default());
+    }
+    let content = storage
+        .get_all(&indexes_list_path)
+        .await
+        // TODO: fix error message.
+        .map_err(|storage_err| convert_error("indexes", storage_err))?;
+    serde_json::from_slice(&content[..])
+        .map_err(|serde_err| MetastoreError::InvalidManifest { cause: serde_err })
+}
+
+pub(crate) async fn put_indexes(
+    storage: &dyn Storage,
+    indexes: &HashMap<String, IndexState>,
+) -> MetastoreResult<()> {
+    let indexes_list_path = Path::new(INDEXES_FILENAME);
+    let content: Vec<u8> =
+        serde_json::to_vec_pretty(&indexes).map_err(|serde_err| MetastoreError::InternalError {
+            message: "Failed to serialize indexes map".to_string(),
+            cause: anyhow::anyhow!(serde_err),
+        })?;
+    storage
+        .put(&indexes_list_path, Box::new(content))
+        .await
+        // TODO: fix error message.
+        .map_err(|storage_err| convert_error("indexes", storage_err))?;
+    Ok(())
 }
 
 pub(crate) async fn fetch_index(
@@ -106,6 +158,7 @@ pub(crate) async fn put_index_given_index_id(
         .map_err(|storage_err| convert_error(index_id, storage_err))?;
     Ok(())
 }
+
 /// Serializes the `Index` object and stores the data on the storage.
 pub(crate) async fn put_index(
     storage: &dyn Storage,
