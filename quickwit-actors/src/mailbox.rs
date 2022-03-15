@@ -25,8 +25,8 @@ use std::sync::Arc;
 use tokio::sync::oneshot;
 
 use crate::channel_with_priority::{Priority, Receiver, Sender};
-use crate::envelope::{wrap_in_async_envelope, AsyncEnvelope};
-use crate::{Actor, AsyncHandler, Message, QueueCapacity, RecvError, SendError};
+use crate::envelope::{wrap_in_async_envelope, Envelope};
+use crate::{Actor, Handler, Message, QueueCapacity, RecvError, SendError};
 
 /// A mailbox is the object that makes it possible to send a message
 /// to an actor.
@@ -63,8 +63,7 @@ impl<A: Actor> Mailbox<A> {
 }
 
 pub(crate) enum CommandOrMessage<A: Actor> {
-    // Message(A::Message),
-    AsyncMessage(Box<dyn AsyncEnvelope<A>>),
+    Message(Box<dyn Envelope<A>>),
     Command(Command),
 }
 
@@ -191,14 +190,6 @@ impl<A: Actor> Mailbox<A> {
         self.inner.tx.send(cmd_or_msg, priority).await
     }
 
-    pub(crate) fn send_with_priority_blocking(
-        &self,
-        cmd_or_msg: CommandOrMessage<A>,
-        priority: Priority,
-    ) -> Result<(), SendError> {
-        self.inner.tx.send_blocking(cmd_or_msg, priority)
-    }
-
     /// SendError is returned if the actor has already exited.
     ///
     /// (See also [Self::send_blocking()])
@@ -207,27 +198,12 @@ impl<A: Actor> Mailbox<A> {
         msg: M,
     ) -> Result<oneshot::Receiver<M::Response>, SendError>
     where
-        A: AsyncHandler<M>,
+        A: Handler<M>,
         M: Message,
     {
         let (msg, response_rx) = wrap_in_async_envelope(msg);
-        self.send_with_priority(CommandOrMessage::AsyncMessage(msg), Priority::Low)
+        self.send_with_priority(CommandOrMessage::Message(msg), Priority::Low)
             .await?;
-        Ok(response_rx)
-    }
-
-    /// Send a message to the actor in a blocking fashion.
-    /// When possible, prefer using [Self::send()].
-    pub(crate) fn send_message_blocking<M>(
-        &self,
-        msg: M,
-    ) -> Result<oneshot::Receiver<M::Response>, SendError>
-    where
-        A: AsyncHandler<M>,
-        M: Message,
-    {
-        let (envelope, response_rx) = wrap_in_async_envelope(msg);
-        self.send_with_priority_blocking(CommandOrMessage::AsyncMessage(envelope), Priority::Low)?;
         Ok(response_rx)
     }
 

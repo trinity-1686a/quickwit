@@ -24,8 +24,8 @@ use async_trait::async_trait;
 use crate::mailbox::Command;
 use crate::observation::ObservationType;
 use crate::{
-    message_timeout, Actor, ActorContext, ActorExitStatus, ActorHandle, ActorState, AsyncActor,
-    AsyncHandler, Health, Mailbox, Message, Observation, Supervisable, Universe,
+    message_timeout, Actor, ActorContext, ActorExitStatus, ActorHandle, ActorRunner, ActorState,
+    Handler, Health, Mailbox, Message, Observation, Supervisable, Universe,
 };
 
 // An actor that receives ping messages.
@@ -54,10 +54,7 @@ impl Actor for PingReceiverSyncActor {
 }
 
 #[async_trait]
-impl AsyncActor for PingReceiverSyncActor {}
-
-#[async_trait]
-impl AsyncHandler<Ping> for PingReceiverSyncActor {
+impl Handler<Ping> for PingReceiverSyncActor {
     async fn handle(
         &mut self,
         _message: Ping,
@@ -87,10 +84,7 @@ impl Actor for PingReceiverAsyncActor {
 }
 
 #[async_trait]
-impl AsyncActor for PingReceiverAsyncActor {}
-
-#[async_trait]
-impl AsyncHandler<Ping> for PingReceiverAsyncActor {
+impl Handler<Ping> for PingReceiverAsyncActor {
     async fn handle(
         &mut self,
         _msg: Ping,
@@ -134,10 +128,7 @@ impl Actor for PingerAsyncSenderActor {
 }
 
 #[async_trait]
-impl AsyncActor for PingerAsyncSenderActor {}
-
-#[async_trait]
-impl AsyncHandler<Ping> for PingerAsyncSenderActor {
+impl Handler<Ping> for PingerAsyncSenderActor {
     async fn handle(
         &mut self,
         _message: Ping,
@@ -152,7 +143,7 @@ impl AsyncHandler<Ping> for PingerAsyncSenderActor {
 }
 
 #[async_trait]
-impl AsyncHandler<AddPeer> for PingerAsyncSenderActor {
+impl Handler<AddPeer> for PingerAsyncSenderActor {
     async fn handle(
         &mut self,
         message: AddPeer,
@@ -170,10 +161,10 @@ async fn test_ping_actor() {
     let universe = Universe::new();
     let (ping_recv_mailbox, ping_recv_handle) = universe
         .spawn_actor(PingReceiverSyncActor::default())
-        .spawn_async();
+        .spawn();
     let (ping_sender_mailbox, ping_sender_handle) = universe
         .spawn_actor(PingerAsyncSenderActor::default())
-        .spawn_async();
+        .spawn();
     assert_eq!(
         ping_recv_handle.observe().await,
         Observation {
@@ -265,10 +256,7 @@ impl Actor for BuggyActor {
 }
 
 #[async_trait]
-impl AsyncActor for BuggyActor {}
-
-#[async_trait]
-impl AsyncHandler<DoNothing> for BuggyActor {
+impl Handler<DoNothing> for BuggyActor {
     async fn handle(
         &mut self,
         _message: DoNothing,
@@ -279,7 +267,7 @@ impl AsyncHandler<DoNothing> for BuggyActor {
 }
 
 #[async_trait]
-impl AsyncHandler<Block> for BuggyActor {
+impl Handler<Block> for BuggyActor {
     async fn handle(
         &mut self,
         _message: Block,
@@ -295,7 +283,7 @@ impl AsyncHandler<Block> for BuggyActor {
 #[tokio::test]
 async fn test_timeouting_actor() {
     let universe = Universe::new();
-    let (buggy_mailbox, buggy_handle) = universe.spawn_actor(BuggyActor).spawn_async();
+    let (buggy_mailbox, buggy_handle) = universe.spawn_actor(BuggyActor).spawn();
     let buggy_mailbox = buggy_mailbox;
     assert_eq!(
         buggy_handle.observe().await.obs_type,
@@ -344,7 +332,7 @@ async fn test_sync_actor_running_states() {
     quickwit_common::setup_logging_for_tests();
     let universe = Universe::new();
     let actor = PingReceiverSyncActor::default();
-    let (ping_mailbox, ping_handle) = universe.spawn_actor(actor).spawn_async();
+    let (ping_mailbox, ping_handle) = universe.spawn_actor(actor).spawn();
     assert!(ping_handle.state() == ActorState::Processing);
     for _ in 0..10 {
         assert!(ping_mailbox.send_message(Ping).await.is_ok());
@@ -369,7 +357,7 @@ async fn test_pause_async_actor() {
     let universe = Universe::new();
     let (ping_mailbox, ping_handle) = universe
         .spawn_actor(PingReceiverAsyncActor::default())
-        .spawn_async();
+        .spawn();
     for _ in 0u32..1000u32 {
         assert!(ping_mailbox.send_message(Ping).await.is_ok());
     }
@@ -389,7 +377,7 @@ async fn test_async_actor_running_states() {
     let universe = Universe::new();
     let (ping_mailbox, ping_handle) = universe
         .spawn_actor(PingReceiverAsyncActor::default())
-        .spawn_async();
+        .spawn();
     assert!(ping_handle.state() == ActorState::Processing);
     for _ in 0u32..10u32 {
         assert!(ping_mailbox.send_message(Ping).await.is_ok());
@@ -426,24 +414,26 @@ impl Message for SingleShot {
     type Response = ();
 }
 
+#[async_trait]
 impl Actor for LoopingActor {
     type ObservableState = Self;
 
     fn observable_state(&self) -> Self::ObservableState {
         self.clone()
     }
-}
 
-#[async_trait]
-impl AsyncActor for LoopingActor {
     async fn initialize(&mut self, ctx: &ActorContext<Self>) -> Result<(), ActorExitStatus> {
         self.handle(Loop, ctx).await
     }
 }
 
 #[async_trait]
-impl AsyncHandler<Loop> for LoopingActor {
-    async fn handle(&mut self, msg: Loop, ctx: &ActorContext<Self>) -> Result<(), ActorExitStatus> {
+impl Handler<Loop> for LoopingActor {
+    async fn handle(
+        &mut self,
+        _msg: Loop,
+        ctx: &ActorContext<Self>,
+    ) -> Result<(), ActorExitStatus> {
         self.loop_count += 1;
         ctx.send_self_message(Loop).await?;
         Ok(())
@@ -451,45 +441,24 @@ impl AsyncHandler<Loop> for LoopingActor {
 }
 
 #[async_trait]
-impl AsyncHandler<SingleShot> for LoopingActor {
+impl Handler<SingleShot> for LoopingActor {
     async fn handle(
         &mut self,
-        msg: SingleShot,
+        _msg: SingleShot,
         _ctx: &ActorContext<Self>,
     ) -> Result<(), ActorExitStatus> {
         self.single_shot_count += 1;
         Ok(())
     }
 }
-// impl SyncActor for LoopingActor {
-// fn initialize(&mut self, ctx: &ActorContext<Self>) -> Result<(), ActorExitStatus> {
-// <LoopingActor as SyncActor>::process_message(self, Msg::Looping, ctx)
-// }
-//
-// fn process_message(
-// &mut self,
-// message: Self::Message,
-// ctx: &ActorContext<Self>,
-// ) -> Result<(), ActorExitStatus> {
-// match message {
-// Msg::Looping => {
-// self.default_count += 1;
-// ctx.send_self_message_blocking(Msg::Looping)?;
-// }
-// Msg::Normal => {
-// self.normal_count += 1;
-// }
-// }
-// Ok(())
-// }
-// }
 
-#[tokio::test]
-async fn test_looping_async() -> anyhow::Result<()> {
+#[track_caller]
+async fn test_looping_aux(runner: ActorRunner) -> anyhow::Result<()> {
     let universe = Universe::new();
     let looping_actor = LoopingActor::default();
-    let (looping_actor_mailbox, looping_actor_handle) =
-        universe.spawn_actor(looping_actor).spawn_async();
+    let (looping_actor_mailbox, looping_actor_handle) = universe
+        .spawn_actor(looping_actor)
+        .spawn_with_forced_runner(runner);
     assert!(looping_actor_mailbox.send_message(SingleShot).await.is_ok());
     looping_actor_handle.process_pending_and_observe().await;
     let (exit_status, state) = looping_actor_handle.quit().await;
@@ -497,6 +466,16 @@ async fn test_looping_async() -> anyhow::Result<()> {
     assert_eq!(state.single_shot_count, 1);
     assert!(state.loop_count > 0);
     Ok(())
+}
+
+#[tokio::test]
+async fn test_looping_tokio_task() -> anyhow::Result<()> {
+    test_looping_aux(ActorRunner::TokioTask).await
+}
+
+#[tokio::test]
+async fn test_looping_dedicated_thread() -> anyhow::Result<()> {
+    test_looping_aux(ActorRunner::DedicatedThread).await
 }
 
 // #[tokio::test]
@@ -527,7 +506,7 @@ impl Message for u64 {
 }
 
 #[async_trait]
-impl AsyncHandler<u64> for SummingActor {
+impl Handler<u64> for SummingActor {
     async fn handle(&mut self, add: u64, _ctx: &ActorContext<Self>) -> Result<(), ActorExitStatus> {
         self.sum += add;
         Ok(())
@@ -542,25 +521,20 @@ impl Actor for SummingActor {
     }
 }
 
-#[async_trait]
-impl AsyncActor for SummingActor {}
-
 #[derive(Default)]
 struct SpawningActor {
     res: u64,
     handle_opt: Option<(Mailbox<SummingActor>, ActorHandle<SummingActor>)>,
 }
 
+#[async_trait]
 impl Actor for SpawningActor {
     type ObservableState = u64;
 
     fn observable_state(&self) -> Self::ObservableState {
         self.res
     }
-}
 
-#[async_trait]
-impl AsyncActor for SpawningActor {
     async fn finalize(
         &mut self,
         _exit_status: &ActorExitStatus,
@@ -575,7 +549,7 @@ impl AsyncActor for SpawningActor {
 }
 
 #[async_trait]
-impl AsyncHandler<u64> for SpawningActor {
+impl Handler<u64> for SpawningActor {
     async fn handle(
         &mut self,
         message: u64,
@@ -583,7 +557,7 @@ impl AsyncHandler<u64> for SpawningActor {
     ) -> Result<(), ActorExitStatus> {
         let (mailbox, _) = self
             .handle_opt
-            .get_or_insert_with(|| ctx.spawn_actor(SummingActor::default()).spawn_async());
+            .get_or_insert_with(|| ctx.spawn_actor(SummingActor::default()).spawn());
         ctx.send_message(mailbox, message).await?;
         Ok(())
     }
@@ -592,7 +566,7 @@ impl AsyncHandler<u64> for SpawningActor {
 #[tokio::test]
 async fn test_actor_spawning_actor() -> anyhow::Result<()> {
     let universe = Universe::new();
-    let (mailbox, handle) = universe.spawn_actor(SpawningActor::default()).spawn_async();
+    let (mailbox, handle) = universe.spawn_actor(SpawningActor::default()).spawn();
     mailbox.send_message(1).await?;
     mailbox.send_message(2).await?;
     mailbox.send_message(3).await?;
@@ -603,8 +577,9 @@ async fn test_actor_spawning_actor() -> anyhow::Result<()> {
     Ok(())
 }
 
-struct BuggyFinalizeActor;
+struct BuggyFinalizeActor(ActorRunner);
 
+#[async_trait]
 impl Actor for BuggyFinalizeActor {
     type ObservableState = ();
 
@@ -613,28 +588,7 @@ impl Actor for BuggyFinalizeActor {
     }
 
     fn observable_state(&self) {}
-}
 
-// impl SyncActor for BuggyFinalizeActor {
-// fn process_message(
-// &mut self,
-// _message: Self::Message,
-// _ctx: &ActorContext<Self>,
-// ) -> Result<(), ActorExitStatus> {
-// Ok(())
-// }
-//
-// fn finalize(
-// &mut self,
-// _exit_status: &ActorExitStatus,
-// _ctx: &ActorContext<Self>,
-// ) -> anyhow::Result<()> {
-// anyhow::bail!("Finalize error")
-// }
-// }
-
-#[async_trait]
-impl AsyncActor for BuggyFinalizeActor {
     async fn finalize(
         &mut self,
         _exit_status: &ActorExitStatus,
@@ -644,26 +598,30 @@ impl AsyncActor for BuggyFinalizeActor {
     }
 }
 
-// #[tokio::test]
-// async fn test_actor_finalize_error_set_exit_status_to_panicked_sync() -> anyhow::Result<()> {
-//     let universe = Universe::new();
-//     let (mailbox, handle) = universe.spawn_actor(BuggyFinalizeActor).spawn_sync();
-//     assert!(matches!(handle.state(), ActorState::Processing));
-//     drop(mailbox);
-//     let (exit, _) = handle.join().await;
-//     assert!(matches!(exit, ActorExitStatus::Panicked));
-//     Ok(())
-// }
-
-#[tokio::test]
-async fn test_actor_finalize_error_set_exit_status_to_panicked_async() -> anyhow::Result<()> {
+#[track_caller]
+async fn test_actor_finalize_error_set_exit_status_to_panicked_aux(
+    actor_runner: ActorRunner,
+) -> anyhow::Result<()> {
     let universe = Universe::new();
-    let (mailbox, handle) = universe.spawn_actor(BuggyFinalizeActor).spawn_async();
+    let (mailbox, handle) = universe
+        .spawn_actor(BuggyFinalizeActor(actor_runner))
+        .spawn();
     assert!(matches!(handle.state(), ActorState::Processing));
     drop(mailbox);
     let (exit, _) = handle.join().await;
     assert!(matches!(exit, ActorExitStatus::Panicked));
     Ok(())
+}
+
+#[tokio::test]
+async fn test_actor_finalize_error_set_exit_status_to_panicked_tokio_task() -> anyhow::Result<()> {
+    test_actor_finalize_error_set_exit_status_to_panicked_aux(ActorRunner::TokioTask).await
+}
+
+#[tokio::test]
+async fn test_actor_finalize_error_set_exit_status_to_panicked_dedicated_thread(
+) -> anyhow::Result<()> {
+    test_actor_finalize_error_set_exit_status_to_panicked_aux(ActorRunner::DedicatedThread).await
 }
 
 #[derive(Default)]
@@ -677,9 +635,6 @@ impl Actor for Adder {
     }
 }
 
-#[async_trait]
-impl AsyncActor for Adder {}
-
 #[derive(Debug)]
 struct AddOperand(u64);
 
@@ -688,11 +643,11 @@ impl Message for AddOperand {
 }
 
 #[async_trait]
-impl AsyncHandler<AddOperand> for Adder {
+impl Handler<AddOperand> for Adder {
     async fn handle(
         &mut self,
         add_op: AddOperand,
-        ctx: &ActorContext<Self>,
+        _ctx: &ActorContext<Self>,
     ) -> Result<u64, ActorExitStatus> {
         self.0 += add_op.0;
         Ok(self.0)
@@ -703,7 +658,7 @@ impl AsyncHandler<AddOperand> for Adder {
 async fn test_actor_return_response() -> anyhow::Result<()> {
     let universe = Universe::new();
     let adder = Adder::default();
-    let (mailbox, handle) = universe.spawn_actor(adder).spawn_async();
+    let (mailbox, _handle) = universe.spawn_actor(adder).spawn();
     let plus_two = mailbox.send_message(AddOperand(2)).await?;
     let plus_two_plus_four = mailbox.send_message(AddOperand(4)).await?;
     assert_eq!(plus_two.await.unwrap(), 2);

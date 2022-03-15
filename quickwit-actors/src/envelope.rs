@@ -18,46 +18,37 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use tokio::sync::oneshot;
+use tracing::Instrument;
 
-use crate::{Actor, ActorContext, ActorExitStatus, AsyncHandler, Message, AsyncActor};
+use crate::{Actor, ActorContext, ActorExitStatus, Handler, Message};
 
 #[async_trait::async_trait]
-pub(crate) trait AsyncEnvelope<A: Actor>: Send + Sync {
+pub(crate) trait Envelope<A: Actor>: Send + Sync {
     async fn process(
         &mut self,
+        msg_id: u64,
         actor: &mut A,
         ctx: &ActorContext<A>,
     ) -> Result<(), ActorExitStatus>;
-}
-
-pub(crate) trait SyncEnvelope<A: Actor>: Send + Sync {
-    fn process(
-        &mut self,
-        actor: &mut A,
-        ctx: &ActorContext<A>,
-    ) -> Result<(), ActorExitStatus>;
-}
-
-pub(crate) enum Envelope<A: Actor> {
-    Sync(Box<dyn SyncEnvelope<A>>),
-    Async(Box<dyn AsyncEnvelope<A>>),
-    Toto
 }
 
 #[async_trait::async_trait]
-impl<A, M> AsyncEnvelope<A> for Option<(oneshot::Sender<M::Response>, M)>
+impl<A, M> Envelope<A> for Option<(oneshot::Sender<M::Response>, M)>
 where
-    A: AsyncHandler<M>,
+    A: Handler<M>,
     M: Message,
 {
     async fn process(
         &mut self,
+        msg_id: u64,
         actor: &mut A,
         ctx: &ActorContext<A>,
     ) -> Result<(), ActorExitStatus> {
         if let Some((response_tx, msg)) = self.take() {
-            let response = actor.handle(msg, ctx).await?;
-            // It is fine if the caller is not waiting for the response.
+            let message_span = actor.message_span(msg_id, &msg);
+            let response = actor.handle(msg, ctx).instrument(message_span).await?;
+            // A SendError is fine here. The caller just did not wait
+            // for our response and dropped its Receiver channel.
             let _ = response_tx.send(response);
         }
         // TODO
@@ -67,40 +58,13 @@ where
 
 pub(crate) fn wrap_in_async_envelope<A, M>(
     msg: M,
-) -> (Box<dyn AsyncEnvelope<A>>, oneshot::Receiver<M::Response>)
+) -> (Box<dyn Envelope<A>>, oneshot::Receiver<M::Response>)
 where
-    A: AsyncHandler<M>,
+    A: Handler<M>,
     M: Message,
 {
     let (response_tx, response_rx) = oneshot::channel();
     let envelope = Some((response_tx, msg));
-    (Box::new(envelope) as Box<dyn AsyncEnvelope<A>>, response_rx)
-}
 
-trait EnvelopeWrapper<M: Message, A: Actor> {
-    fn message(&self, msg: M) -> (Envelope<A>, oneshot::Receiver<M::Response>);
+    (Box::new(envelope) as Box<dyn Envelope<A>>, response_rx)
 }
-
-impl<M, A> EnvelopeWrapper<M, A> for &&A
-where
-    M: Message,
-    A: AsyncHandler<M> {
-    fn message(&self, msg: M) -> (Envelope<A>, oneshot::Receiver<M::Response>) {
-        let (response_tx, response_rx) = oneshot::channel();
-        let envelope: Box<dyn AsyncEnvelope<A>> = Box::new(Some((response_tx, msg)));
-        (Envelope::Async(envelope), response_rx)
-    }
-}
-
-impl<M, A> EnvelopeWrapper<M, A> for &A
-where
-    M: Message,
-    A: TotoTrait<M> {
-    fn message(&self, msg: M) -> (Envelope<A>, oneshot::Receiver<M::Response>) {
-        let (response_tx, response_rx) = oneshot::channel();
-        // let envelope: Box<dyn AsyncEnvelope<A>> = Box::new(Some((response_tx, msg)));
-        (Envelope::Toto, response_rx)
-    }
-}
-
-trait TotoTrait<M>: Actor {}

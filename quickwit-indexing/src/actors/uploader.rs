@@ -300,7 +300,7 @@ mod tests {
             index_storage,
             mailbox,
         );
-        let (uploader_mailbox, uploader_handle) = universe.spawn_actor(uploader).spawn_async();
+        let (uploader_mailbox, uploader_handle) = universe.spawn_actor(uploader).spawn();
         let split_scratch_directory = ScratchDirectory::for_test()?;
         universe
             .send_message(
@@ -373,7 +373,7 @@ mod tests {
             index_storage,
             mailbox,
         );
-        let (uploader_mailbox, uploader_handle) = universe.spawn_actor(uploader).spawn_async();
+        let (uploader_mailbox, uploader_handle) = universe.spawn_actor(uploader).spawn();
         let split_scratch_directory_1 = ScratchDirectory::for_test()?;
         let split_scratch_directory_2 = ScratchDirectory::for_test()?;
         let packaged_split_1 = PackagedSplit {

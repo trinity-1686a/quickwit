@@ -30,34 +30,33 @@ mod actor;
 mod actor_handle;
 mod actor_state;
 mod actor_with_state_tx;
-mod async_actor;
 pub(crate) mod channel_with_priority;
 mod envelope;
 mod kill_switch;
 mod mailbox;
 mod observation;
 mod progress;
+mod runner;
 mod scheduler;
 mod spawn_builder;
-// mod sync_actor;
+
 #[cfg(test)]
 mod tests;
 mod universe;
 
-pub use actor::{Actor, ActorExitStatus, Message};
+pub use actor::{Actor, ActorExitStatus, Handler, Message};
 pub use actor_handle::{ActorHandle, Health, Supervisable};
-pub use async_actor::{AsyncActor, AsyncHandler};
 pub use kill_switch::KillSwitch;
 pub use observation::{Observation, ObservationType};
 pub use progress::{Progress, ProtectedZoneGuard};
 pub(crate) use scheduler::Scheduler;
-// pub use sync_actor::SyncActor;
 pub use universe::Universe;
 
 pub use self::actor::ActorContext;
 pub use self::actor_state::ActorState;
 pub use self::channel_with_priority::{QueueCapacity, RecvError, SendError};
 pub use self::mailbox::{create_mailbox, create_test_mailbox, Command, Mailbox};
+pub use crate::runner::ActorRunner;
 
 /// Heartbeat used to verify that actors are progressing.
 ///

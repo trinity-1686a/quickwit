@@ -29,7 +29,7 @@ use tokio::sync::oneshot::Sender;
 use tokio::task::JoinHandle;
 use tracing::info;
 
-use crate::{Actor, ActorContext, ActorExitStatus, AsyncActor, AsyncHandler, Message};
+use crate::{Actor, ActorContext, ActorExitStatus, Handler, Message};
 
 pub(crate) struct Callback(pub Pin<Box<dyn Future<Output = ()> + Sync + Send + 'static>>);
 
@@ -118,9 +118,6 @@ pub(crate) struct Scheduler {
     next_timeout: Option<JoinHandle<()>>,
 }
 
-#[async_trait]
-impl AsyncActor for Scheduler {}
-
 impl Actor for Scheduler {
     type ObservableState = SchedulerCounters;
 
@@ -137,7 +134,7 @@ impl Actor for Scheduler {
 }
 
 #[async_trait]
-impl AsyncHandler<SchedulerMessage> for Scheduler {
+impl Handler<SchedulerMessage> for Scheduler {
     async fn handle(
         &mut self,
         message: SchedulerMessage,
@@ -308,7 +305,7 @@ mod tests {
         // It might be a bit confusing. We spawn a scheduler like a regular actor to test it.
         // The scheduler is usually spawned from within the universe.
         let (scheduler_mailbox, scheduler_handler) =
-            universe.spawn_actor(Scheduler::default()).spawn_async();
+            universe.spawn_actor(Scheduler::default()).spawn();
         let (cb_called, callback) = create_test_callback();
         universe
             .send_message(
@@ -351,7 +348,7 @@ mod tests {
         quickwit_common::setup_logging_for_tests();
         let universe = Universe::new();
         let (scheduler_mailbox, scheduler_handler) =
-            universe.spawn_actor(Scheduler::default()).spawn_async();
+            universe.spawn_actor(Scheduler::default()).spawn();
         let (cb_called1, callback1) = create_test_callback();
         let (cb_called2, callback2) = create_test_callback();
         universe

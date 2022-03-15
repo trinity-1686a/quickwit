@@ -17,11 +17,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::async_actor::spawn_async_actor;
 use crate::mailbox::Inbox;
 use crate::scheduler::Scheduler;
-// use crate::sync_actor::spawn_sync_actor;
-use crate::{create_mailbox, Actor, ActorContext, ActorHandle, AsyncActor, KillSwitch, Mailbox};
+use crate::{create_mailbox, Actor, ActorContext, ActorHandle, ActorRunner, KillSwitch, Mailbox};
 
 /// `SpawnBuilder` makes it possible to configure misc parameters before spawning an actor.
 pub struct SpawnBuilder<A: Actor> {
@@ -82,22 +80,18 @@ impl<A: Actor> SpawnBuilder<A> {
     }
 }
 
-impl<A: AsyncActor> SpawnBuilder<A> {
+impl<A: Actor> SpawnBuilder<A> {
     /// Spawns an async actor.
-    pub fn spawn_async(self) -> (Mailbox<A>, ActorHandle<A>) {
+    pub fn spawn(self) -> (Mailbox<A>, ActorHandle<A>) {
+        let runner = self.actor.runner();
+        self.spawn_with_forced_runner(runner)
+    }
+
+    /// Ignore the actor default runner, and run the actor on a specific one.
+    pub fn spawn_with_forced_runner(self, runner: ActorRunner) -> (Mailbox<A>, ActorHandle<A>) {
         let (actor, ctx, inbox) = self.create_actor_context_and_inbox();
         let mailbox = ctx.mailbox().clone();
-        let actor_handle = spawn_async_actor(actor, ctx, inbox);
+        let actor_handle = runner.spawn_actor(actor, ctx, inbox);
         (mailbox, actor_handle)
     }
 }
-
-// impl<A: SyncActor> SpawnBuilder<A> {
-//     /// Spawns an async actor.
-//     pub fn spawn_sync(self) -> (Mailbox<A>, ActorHandle<A>) {
-//         let (actor, ctx, inbox) = self.create_actor_context_and_inbox();
-//         let mailbox = ctx.mailbox().clone();
-//         let actor_handle = spawn_sync_actor(actor, ctx, inbox);
-//         (mailbox, actor_handle)
-//     }
-// }
