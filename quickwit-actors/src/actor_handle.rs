@@ -289,7 +289,7 @@ mod tests {
     use async_trait::async_trait;
 
     use super::*;
-    use crate::{Handler, Message, Universe};
+    use crate::{Handler, Universe};
 
     #[derive(Default)]
     struct PanickingActor {
@@ -315,17 +315,14 @@ mod tests {
     // }
 
     #[derive(Debug)]
-    struct Panick;
-
-    impl Message for Panick {
-        type Response = ();
-    }
+    struct Panic;
 
     #[async_trait]
-    impl Handler<Panick> for PanickingActor {
+    impl Handler<Panic> for PanickingActor {
+        type Reply = ();
         async fn handle(
             &mut self,
-            _message: Panick,
+            _message: Panic,
             _ctx: &ActorContext<Self>,
         ) -> Result<(), ActorExitStatus> {
             self.count += 1;
@@ -348,12 +345,11 @@ mod tests {
     #[derive(Debug)]
     struct Exit;
 
-    impl Message for Exit {
-        type Response = ();
-    }
-
     #[async_trait]
     impl Handler<Exit> for ExitActor {
+
+        type Reply = ();
+
         async fn handle(
             &mut self,
             _msg: Exit,
@@ -368,7 +364,7 @@ mod tests {
     async fn test_panic_in_async_actor() -> anyhow::Result<()> {
         let universe = Universe::new();
         let (mailbox, handle) = universe.spawn_actor(PanickingActor::default()).spawn();
-        universe.send_message(&mailbox, Panick).await?;
+        universe.send_message(&mailbox, Panic).await?;
         let (exit_status, count) = handle.join().await;
         assert!(matches!(exit_status, ActorExitStatus::Panicked));
         assert!(matches!(count, 1)); //< Upon panick we cannot get a post mortem state.

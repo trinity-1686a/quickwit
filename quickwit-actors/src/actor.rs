@@ -110,10 +110,6 @@ impl From<SendError> for ActorExitStatus {
     }
 }
 
-pub trait Message: fmt::Debug + Send + Sync + 'static {
-    type Response: Send + Sync + 'static;
-}
-
 /// An actor has an internal state and processes a stream of messages.
 /// Each actor has a mailbox where the messages are enqueued before being processed.
 ///
@@ -411,10 +407,10 @@ impl<A: Actor> ActorContext<A> {
         &self,
         mailbox: &Mailbox<Dest>,
         msg: M,
-    ) -> Result<oneshot::Receiver<M::Response>, crate::SendError>
+    ) -> Result<oneshot::Receiver<Dest::Reply>, crate::SendError>
     where
         Dest: Handler<M>,
-        M: Message,
+        M: 'static + Send + Sync + fmt::Debug
     {
         let _guard = self.protect_zone();
         debug!(from=%self.self_mailbox.actor_instance_id(), send=%mailbox.actor_instance_id(), msg=?msg);
@@ -443,10 +439,10 @@ impl<A: Actor> ActorContext<A> {
     pub async fn send_self_message<M>(
         &self,
         msg: M,
-    ) -> Result<oneshot::Receiver<M::Response>, crate::SendError>
+    ) -> Result<oneshot::Receiver<A::Reply>, crate::SendError>
     where
         A: Handler<M>,
-        M: Message,
+        M: 'static + Sync+ Send + fmt::Debug
     {
         debug!(self=%self.self_mailbox.actor_instance_id(), msg=?msg, "self_send");
         self.self_mailbox.send_message(msg).await
@@ -455,7 +451,7 @@ impl<A: Actor> ActorContext<A> {
     pub async fn schedule_self_msg<M>(&self, after_duration: Duration, msg: M)
     where
         A: Handler<M>,
-        M: Message,
+        M: 'static + Send + Sync + fmt::Debug
     {
         let self_mailbox = self.inner.self_mailbox.clone();
         let (envelope, _response_rx) = wrap_in_async_envelope(msg);
@@ -504,7 +500,10 @@ pub(crate) fn process_command<A: Actor>(
 }
 
 #[async_trait::async_trait]
-pub trait Handler<M: Message>: Actor {
+pub trait Handler<M>: Actor {
+
+    type Reply: 'static + Send;
+
     /// Returns a context span for the processing of a specific
     /// message.
     ///
@@ -523,5 +522,5 @@ pub trait Handler<M: Message>: Actor {
         &mut self,
         message: M,
         ctx: &ActorContext<Self>,
-    ) -> Result<M::Response, ActorExitStatus>;
+    ) -> Result<Self::Reply, ActorExitStatus>;
 }

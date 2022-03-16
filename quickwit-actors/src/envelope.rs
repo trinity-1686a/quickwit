@@ -17,10 +17,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::fmt;
+
 use tokio::sync::oneshot;
 use tracing::Instrument;
 
-use crate::{Actor, ActorContext, ActorExitStatus, Handler, Message};
+use crate::{Actor, ActorContext, ActorExitStatus, Handler};
 
 #[async_trait::async_trait]
 pub(crate) trait Envelope<A: Actor>: Send + Sync {
@@ -33,10 +35,10 @@ pub(crate) trait Envelope<A: Actor>: Send + Sync {
 }
 
 #[async_trait::async_trait]
-impl<A, M> Envelope<A> for Option<(oneshot::Sender<M::Response>, M)>
+impl<A, M> Envelope<A> for Option<(oneshot::Sender<A::Reply>, M)>
 where
     A: Handler<M>,
-    M: Message,
+    M: 'static + Send + Sync + fmt::Debug
 {
     async fn process(
         &mut self,
@@ -58,10 +60,10 @@ where
 
 pub(crate) fn wrap_in_async_envelope<A, M>(
     msg: M,
-) -> (Box<dyn Envelope<A>>, oneshot::Receiver<M::Response>)
+) -> (Box<dyn Envelope<A>>, oneshot::Receiver<A::Reply>)
 where
     A: Handler<M>,
-    M: Message,
+    M: 'static + Send + Sync + fmt::Debug
 {
     let (response_tx, response_rx) = oneshot::channel();
     let envelope = Some((response_tx, msg));

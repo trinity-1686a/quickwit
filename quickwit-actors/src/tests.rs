@@ -25,7 +25,7 @@ use crate::mailbox::Command;
 use crate::observation::ObservationType;
 use crate::{
     message_timeout, Actor, ActorContext, ActorExitStatus, ActorHandle, ActorRunner, ActorState,
-    Handler, Health, Mailbox, Message, Observation, Supervisable, Universe,
+    Handler, Health, Mailbox, Observation, Supervisable, Universe,
 };
 
 // An actor that receives ping messages.
@@ -36,10 +36,6 @@ pub struct PingReceiverSyncActor {
 
 #[derive(Debug, Clone)]
 pub struct Ping;
-
-impl Message for Ping {
-    type Response = ();
-}
 
 impl Actor for PingReceiverSyncActor {
     type ObservableState = usize;
@@ -55,6 +51,9 @@ impl Actor for PingReceiverSyncActor {
 
 #[async_trait]
 impl Handler<Ping> for PingReceiverSyncActor {
+
+    type Reply = ();
+
     async fn handle(
         &mut self,
         _message: Ping,
@@ -85,6 +84,7 @@ impl Actor for PingReceiverAsyncActor {
 
 #[async_trait]
 impl Handler<Ping> for PingReceiverAsyncActor {
+    type Reply = ();
     async fn handle(
         &mut self,
         _msg: Ping,
@@ -108,9 +108,6 @@ pub struct SenderState {
 
 #[derive(Debug, Clone)]
 pub struct AddPeer(Mailbox<PingReceiverSyncActor>);
-impl Message for AddPeer {
-    type Response = ();
-}
 
 impl Actor for PingerAsyncSenderActor {
     type ObservableState = SenderState;
@@ -129,6 +126,9 @@ impl Actor for PingerAsyncSenderActor {
 
 #[async_trait]
 impl Handler<Ping> for PingerAsyncSenderActor {
+
+    type Reply = ();
+
     async fn handle(
         &mut self,
         _message: Ping,
@@ -144,6 +144,9 @@ impl Handler<Ping> for PingerAsyncSenderActor {
 
 #[async_trait]
 impl Handler<AddPeer> for PingerAsyncSenderActor {
+
+    type Reply = ();
+
     async fn handle(
         &mut self,
         message: AddPeer,
@@ -234,16 +237,8 @@ struct BuggyActor;
 #[derive(Debug, Clone)]
 struct DoNothing;
 
-impl Message for DoNothing {
-    type Response = ();
-}
-
 #[derive(Debug, Clone)]
 struct Block;
-
-impl Message for Block {
-    type Response = ();
-}
 
 impl Actor for BuggyActor {
     type ObservableState = ();
@@ -257,6 +252,9 @@ impl Actor for BuggyActor {
 
 #[async_trait]
 impl Handler<DoNothing> for BuggyActor {
+
+    type Reply = ();
+
     async fn handle(
         &mut self,
         _message: DoNothing,
@@ -268,6 +266,9 @@ impl Handler<DoNothing> for BuggyActor {
 
 #[async_trait]
 impl Handler<Block> for BuggyActor {
+
+    type Reply = ();
+
     async fn handle(
         &mut self,
         _message: Block,
@@ -403,16 +404,8 @@ struct LoopingActor {
 #[derive(Debug)]
 struct Loop;
 
-impl Message for Loop {
-    type Response = ();
-}
-
 #[derive(Debug)]
 struct SingleShot;
-
-impl Message for SingleShot {
-    type Response = ();
-}
 
 #[async_trait]
 impl Actor for LoopingActor {
@@ -429,6 +422,7 @@ impl Actor for LoopingActor {
 
 #[async_trait]
 impl Handler<Loop> for LoopingActor {
+    type Reply = ();
     async fn handle(
         &mut self,
         _msg: Loop,
@@ -442,6 +436,9 @@ impl Handler<Loop> for LoopingActor {
 
 #[async_trait]
 impl Handler<SingleShot> for LoopingActor {
+
+    type Reply = ();
+
     async fn handle(
         &mut self,
         _msg: SingleShot,
@@ -501,12 +498,11 @@ struct SummingActor {
     sum: u64,
 }
 
-impl Message for u64 {
-    type Response = ();
-}
-
 #[async_trait]
 impl Handler<u64> for SummingActor {
+
+    type Reply = ();
+
     async fn handle(&mut self, add: u64, _ctx: &ActorContext<Self>) -> Result<(), ActorExitStatus> {
         self.sum += add;
         Ok(())
@@ -550,6 +546,9 @@ impl Actor for SpawningActor {
 
 #[async_trait]
 impl Handler<u64> for SpawningActor {
+
+    type Reply = ();
+
     async fn handle(
         &mut self,
         message: u64,
@@ -638,12 +637,11 @@ impl Actor for Adder {
 #[derive(Debug)]
 struct AddOperand(u64);
 
-impl Message for AddOperand {
-    type Response = u64;
-}
-
 #[async_trait]
 impl Handler<AddOperand> for Adder {
+
+    type Reply = u64;
+
     async fn handle(
         &mut self,
         add_op: AddOperand,

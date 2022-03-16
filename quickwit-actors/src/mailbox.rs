@@ -26,7 +26,7 @@ use tokio::sync::oneshot;
 
 use crate::channel_with_priority::{Priority, Receiver, Sender};
 use crate::envelope::{wrap_in_async_envelope, Envelope};
-use crate::{Actor, Handler, Message, QueueCapacity, RecvError, SendError};
+use crate::{Actor, Handler, QueueCapacity, RecvError, SendError};
 
 /// A mailbox is the object that makes it possible to send a message
 /// to an actor.
@@ -196,10 +196,10 @@ impl<A: Actor> Mailbox<A> {
     pub(crate) async fn send_message<M>(
         &self,
         msg: M,
-    ) -> Result<oneshot::Receiver<M::Response>, SendError>
+    ) -> Result<oneshot::Receiver<A::Reply>, SendError>
     where
         A: Handler<M>,
-        M: Message,
+        M: 'static + Send + Sync + fmt::Debug
     {
         let (msg, response_rx) = wrap_in_async_envelope(msg);
         self.send_with_priority(CommandOrMessage::Message(msg), Priority::Low)

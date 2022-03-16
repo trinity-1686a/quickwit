@@ -29,7 +29,7 @@ use tokio::sync::oneshot::Sender;
 use tokio::task::JoinHandle;
 use tracing::info;
 
-use crate::{Actor, ActorContext, ActorExitStatus, Handler, Message};
+use crate::{Actor, ActorContext, ActorExitStatus, Handler};
 
 pub(crate) struct Callback(pub Pin<Box<dyn Future<Output = ()> + Sync + Send + 'static>>);
 
@@ -82,10 +82,6 @@ pub(crate) enum SchedulerMessage {
     },
 }
 
-impl Message for SchedulerMessage {
-    type Response = ();
-}
-
 impl fmt::Debug for SchedulerMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -135,6 +131,9 @@ impl Actor for Scheduler {
 
 #[async_trait]
 impl Handler<SchedulerMessage> for Scheduler {
+
+    type Reply = ();
+
     async fn handle(
         &mut self,
         message: SchedulerMessage,

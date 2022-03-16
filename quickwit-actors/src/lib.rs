@@ -44,7 +44,7 @@ mod spawn_builder;
 mod tests;
 mod universe;
 
-pub use actor::{Actor, ActorExitStatus, Handler, Message};
+pub use actor::{Actor, ActorExitStatus, Handler};
 pub use actor_handle::{ActorHandle, Health, Supervisable};
 pub use kill_switch::KillSwitch;
 pub use observation::{Observation, ObservationType};

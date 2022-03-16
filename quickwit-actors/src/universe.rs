@@ -17,6 +17,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::fmt;
 use std::time::Duration;
 
 use tokio::sync::oneshot;
@@ -25,7 +26,7 @@ use crate::channel_with_priority::Priority;
 use crate::mailbox::{Command, CommandOrMessage};
 use crate::scheduler::{SchedulerMessage, TimeShift};
 use crate::spawn_builder::SpawnBuilder;
-use crate::{Actor, Handler, KillSwitch, Mailbox, Message, QueueCapacity, Scheduler};
+use crate::{Actor, Handler, KillSwitch, Mailbox, QueueCapacity, Scheduler};
 
 /// Universe serves as the top-level context in which Actor can be spawned.
 /// It is *not* a singleton. A typical application will usually have only one universe hosting all
@@ -91,10 +92,10 @@ impl Universe {
         &self,
         mailbox: &Mailbox<A>,
         message: M,
-    ) -> Result<oneshot::Receiver<M::Response>, crate::SendError>
+    ) -> Result<oneshot::Receiver<A::Reply>, crate::SendError>
     where
         A: Handler<M>,
-        M: Message,
+        M: 'static + Send + Sync + fmt::Debug
     {
         mailbox.send_message(message).await
     }
@@ -106,8 +107,7 @@ impl Universe {
         mailbox: &Mailbox<A>,
     ) -> Result<(), crate::SendError>
     where
-        A: Handler<M>,
-        M: Message,
+        A: Handler<M>
     {
         mailbox
             .send_with_priority(
@@ -130,7 +130,7 @@ mod tests {
 
     use async_trait::async_trait;
 
-    use crate::{Actor, ActorContext, ActorExitStatus, Handler, Message, Universe};
+    use crate::{Actor, ActorContext, ActorExitStatus, Handler, Universe};
 
     #[derive(Default)]
     pub struct ActorWithSchedule {
@@ -153,12 +153,9 @@ mod tests {
     #[derive(Debug)]
     struct Loop;
 
-    impl Message for Loop {
-        type Response = ();
-    }
-
     #[async_trait]
     impl Handler<Loop> for ActorWithSchedule {
+        type Reply = ();
         async fn handle(
             &mut self,
             _msg: Loop,
