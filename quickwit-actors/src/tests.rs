@@ -51,7 +51,6 @@ impl Actor for PingReceiverSyncActor {
 
 #[async_trait]
 impl Handler<Ping> for PingReceiverSyncActor {
-
     type Reply = ();
 
     async fn handle(
@@ -126,7 +125,6 @@ impl Actor for PingerAsyncSenderActor {
 
 #[async_trait]
 impl Handler<Ping> for PingerAsyncSenderActor {
-
     type Reply = ();
 
     async fn handle(
@@ -144,7 +142,6 @@ impl Handler<Ping> for PingerAsyncSenderActor {
 
 #[async_trait]
 impl Handler<AddPeer> for PingerAsyncSenderActor {
-
     type Reply = ();
 
     async fn handle(
@@ -252,7 +249,6 @@ impl Actor for BuggyActor {
 
 #[async_trait]
 impl Handler<DoNothing> for BuggyActor {
-
     type Reply = ();
 
     async fn handle(
@@ -266,7 +262,6 @@ impl Handler<DoNothing> for BuggyActor {
 
 #[async_trait]
 impl Handler<Block> for BuggyActor {
-
     type Reply = ();
 
     async fn handle(
@@ -313,7 +308,7 @@ async fn test_timeouting_actor() {
 //     quickwit_common::setup_logging_for_tests();
 //     let universe = Universe::new();
 //     let actor = PingReceiverSyncActor::default();
-//     let (ping_mailbox, ping_handle) = universe.spawn_actor(actor).spawn_sync();
+//     let (ping_mailbox, ping_handle) = universe.spawn_actor(actor).spawn();
 //     for _ in 0..1000 {
 //         assert!(ping_mailbox.send_message(Ping).await.is_ok());
 //     }
@@ -436,7 +431,6 @@ impl Handler<Loop> for LoopingActor {
 
 #[async_trait]
 impl Handler<SingleShot> for LoopingActor {
-
     type Reply = ();
 
     async fn handle(
@@ -480,7 +474,7 @@ async fn test_looping_dedicated_thread() -> anyhow::Result<()> {
 //     let universe = Universe::new();
 //     let looping_actor = LoopingActor::default();
 //     let (looping_actor_mailbox, looping_actor_handle) =
-//         universe.spawn_actor(looping_actor).spawn_sync();
+//         universe.spawn_actor(looping_actor).spawn();
 //     assert!(looping_actor_mailbox
 //         .send_message(Msg::Normal)
 //         .await
@@ -500,7 +494,6 @@ struct SummingActor {
 
 #[async_trait]
 impl Handler<u64> for SummingActor {
-
     type Reply = ();
 
     async fn handle(&mut self, add: u64, _ctx: &ActorContext<Self>) -> Result<(), ActorExitStatus> {
@@ -546,7 +539,6 @@ impl Actor for SpawningActor {
 
 #[async_trait]
 impl Handler<u64> for SpawningActor {
-
     type Reply = ();
 
     async fn handle(
@@ -639,7 +631,6 @@ struct AddOperand(u64);
 
 #[async_trait]
 impl Handler<AddOperand> for Adder {
-
     type Reply = u64;
 
     async fn handle(

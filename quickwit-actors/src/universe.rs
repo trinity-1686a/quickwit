@@ -95,7 +95,7 @@ impl Universe {
     ) -> Result<oneshot::Receiver<A::Reply>, crate::SendError>
     where
         A: Handler<M>,
-        M: 'static + Send + Sync + fmt::Debug
+        M: 'static + Send + Sync + fmt::Debug,
     {
         mailbox.send_message(message).await
     }
@@ -107,7 +107,7 @@ impl Universe {
         mailbox: &Mailbox<A>,
     ) -> Result<(), crate::SendError>
     where
-        A: Handler<M>
+        A: Handler<M>,
     {
         mailbox
             .send_with_priority(

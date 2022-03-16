@@ -38,7 +38,7 @@ pub(crate) trait Envelope<A: Actor>: Send + Sync {
 impl<A, M> Envelope<A> for Option<(oneshot::Sender<A::Reply>, M)>
 where
     A: Handler<M>,
-    M: 'static + Send + Sync + fmt::Debug
+    M: 'static + Send + Sync + fmt::Debug,
 {
     async fn process(
         &mut self,
@@ -63,7 +63,7 @@ pub(crate) fn wrap_in_async_envelope<A, M>(
 ) -> (Box<dyn Envelope<A>>, oneshot::Receiver<A::Reply>)
 where
     A: Handler<M>,
-    M: 'static + Send + Sync + fmt::Debug
+    M: 'static + Send + Sync + fmt::Debug,
 {
     let (response_tx, response_rx) = oneshot::channel();
     let envelope = Some((response_tx, msg));

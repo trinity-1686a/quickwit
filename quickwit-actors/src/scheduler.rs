@@ -131,7 +131,6 @@ impl Actor for Scheduler {
 
 #[async_trait]
 impl Handler<SchedulerMessage> for Scheduler {
-
     type Reply = ();
 
     async fn handle(

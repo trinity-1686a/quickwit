@@ -199,7 +199,7 @@ impl<A: Actor> Mailbox<A> {
     ) -> Result<oneshot::Receiver<A::Reply>, SendError>
     where
         A: Handler<M>,
-        M: 'static + Send + Sync + fmt::Debug
+        M: 'static + Send + Sync + fmt::Debug,
     {
         let (msg, response_rx) = wrap_in_async_envelope(msg);
         self.send_with_priority(CommandOrMessage::Message(msg), Priority::Low)

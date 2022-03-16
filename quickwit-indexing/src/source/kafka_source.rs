@@ -827,7 +827,7 @@ mod kafka_broker_tests {
                 source,
                 batch_sink: sink.clone(),
             };
-            let (_mailbox, handle) = universe.spawn_actor(actor).spawn_async();
+            let (_mailbox, handle) = universe.spawn_actor(actor).spawn();
             let (exit_status, exit_state) = handle.join().await;
             assert!(exit_status.is_success());
 
@@ -874,7 +874,7 @@ mod kafka_broker_tests {
                 source,
                 batch_sink: sink.clone(),
             };
-            let (_mailbox, handle) = universe.spawn_actor(actor).spawn_async();
+            let (_mailbox, handle) = universe.spawn_actor(actor).spawn();
             let (exit_status, state) = handle.join().await;
             assert!(exit_status.is_success());
 
@@ -928,7 +928,7 @@ mod kafka_broker_tests {
                 source,
                 batch_sink: sink.clone(),
             };
-            let (_mailbox, handle) = universe.spawn_actor(actor).spawn_async();
+            let (_mailbox, handle) = universe.spawn_actor(actor).spawn();
             let (exit_status, exit_state) = handle.join().await;
             assert!(exit_status.is_success());
 

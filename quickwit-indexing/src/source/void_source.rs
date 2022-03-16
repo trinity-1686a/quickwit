@@ -99,7 +99,7 @@ mod tests {
             source: Box::new(void_source),
             batch_sink: mailbox,
         };
-        let (_, void_source_handle) = universe.spawn_actor(void_source_actor).spawn_async();
+        let (_, void_source_handle) = universe.spawn_actor(void_source_actor).spawn();
         matches!(void_source_handle.health(), Health::Healthy);
         let (actor_termination, observed_state) = void_source_handle.quit().await;
         assert_eq!(observed_state, json!({}));

@@ -21,9 +21,10 @@ use std::ops::RangeInclusive;
 use std::sync::Arc;
 
 use anyhow::Context;
+use async_trait::async_trait;
 use fail::fail_point;
 use quickwit_actors::{
-    Actor, ActorContext, ActorExitStatus, Mailbox, QueueCapacity, SendError, SyncActor,
+    Actor, ActorContext, ActorExitStatus, ActorRunner, Handler, Mailbox, QueueCapacity, SendError,
 };
 use quickwit_config::IndexingSettings;
 use quickwit_doc_mapper::{DocMapper, DocParsingError, SortBy};
@@ -118,7 +119,7 @@ impl IndexerState {
     /// the indexed_split does not exist yet.
     ///
     /// This function will then create it, and can hence return an Error.
-    fn get_or_create_current_indexed_split<'a>(
+    async fn get_or_create_current_indexed_split<'a>(
         &self,
         current_split_opt: &'a mut Option<IndexedSplit>,
         ctx: &ActorContext<Indexer>,
@@ -128,10 +129,11 @@ impl IndexerState {
             let commit_timeout_message = IndexerMessage::CommitTimeout {
                 split_id: new_indexed_split.split_id.clone(),
             };
-            ctx.schedule_self_msg_blocking(
+            ctx.schedule_self_msg(
                 self.indexing_settings.commit_timeout(),
                 commit_timeout_message,
-            );
+            )
+            .await;
             *current_split_opt = Some(new_indexed_split);
         }
         let current_index_split = current_split_opt.as_mut().with_context(|| {
@@ -175,14 +177,16 @@ impl IndexerState {
         }
     }
 
-    fn process_batch(
+    async fn process_batch(
         &self,
         batch: RawDocBatch,
         current_split_opt: &mut Option<IndexedSplit>,
         counters: &mut IndexerCounters,
         ctx: &ActorContext<Indexer>,
     ) -> Result<(), ActorExitStatus> {
-        let indexed_split = self.get_or_create_current_indexed_split(current_split_opt, ctx)?;
+        let indexed_split = self
+            .get_or_create_current_indexed_split(current_split_opt, ctx)
+            .await?;
         indexed_split
             .checkpoint_delta
             .extend(batch.checkpoint_delta)
@@ -231,9 +235,8 @@ pub struct Indexer {
     counters: IndexerCounters,
 }
 
+#[async_trait]
 impl Actor for Indexer {
-    type Message = IndexerMessage;
-
     type ObservableState = IndexerCounters;
 
     fn observable_state(&self) -> Self::ObservableState {
@@ -247,6 +250,28 @@ impl Actor for Indexer {
     fn name(&self) -> String {
         "Indexer".to_string()
     }
+
+    fn runner(&self) -> ActorRunner {
+        ActorRunner::DedicatedThread
+    }
+
+    async fn finalize(
+        &mut self,
+        exit_status: &ActorExitStatus,
+        ctx: &ActorContext<Self>,
+    ) -> anyhow::Result<()> {
+        match exit_status {
+            ActorExitStatus::DownstreamClosed
+            | ActorExitStatus::Killed
+            | ActorExitStatus::Failure(_)
+            | ActorExitStatus::Panicked => return Ok(()),
+            ActorExitStatus::Quit | ActorExitStatus::Success => {
+                self.send_to_packager(CommitTrigger::NoMoreDocs, ctx)
+                    .await?;
+            }
+        }
+        Ok(())
+    }
 }
 
 fn record_timestamp(timestamp: i64, time_range: &mut Option<RangeInclusive<i64>>) {
@@ -259,35 +284,21 @@ fn record_timestamp(timestamp: i64, time_range: &mut Option<RangeInclusive<i64>>
     *time_range = Some(new_timestamp_range);
 }
 
-impl SyncActor for Indexer {
-    fn process_message(
+#[async_trait]
+impl Handler<IndexerMessage> for Indexer {
+    type Reply = ();
+
+    async fn handle(
         &mut self,
         indexer_message: IndexerMessage,
         ctx: &ActorContext<Self>,
     ) -> Result<(), ActorExitStatus> {
         match indexer_message {
             IndexerMessage::Batch(batch) => {
-                self.process_batch(batch, ctx)?;
+                self.process_batch(batch, ctx).await?;
             }
             IndexerMessage::CommitTimeout { split_id } => {
-                self.process_commit_timeout(&split_id, ctx)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn finalize(
-        &mut self,
-        exit_status: &ActorExitStatus,
-        ctx: &ActorContext<Self>,
-    ) -> anyhow::Result<()> {
-        match exit_status {
-            ActorExitStatus::DownstreamClosed
-            | ActorExitStatus::Killed
-            | ActorExitStatus::Failure(_)
-            | ActorExitStatus::Panicked => return Ok(()),
-            ActorExitStatus::Quit | ActorExitStatus::Success => {
-                self.send_to_packager(CommitTrigger::NoMoreDocs, ctx)?;
+                self.process_commit_timeout(&split_id, ctx).await?;
             }
         }
         Ok(())
@@ -333,28 +344,26 @@ impl Indexer {
         }
     }
 
-    fn process_batch(
+    async fn process_batch(
         &mut self,
         batch: RawDocBatch,
         ctx: &ActorContext<Self>,
     ) -> Result<(), ActorExitStatus> {
         fail_point!("indexer:batch:before");
-        self.indexer_state.process_batch(
-            batch,
-            &mut self.current_split_opt,
-            &mut self.counters,
-            ctx,
-        )?;
+        self.indexer_state
+            .process_batch(batch, &mut self.current_split_opt, &mut self.counters, ctx)
+            .await?;
         if self.counters.num_docs_in_split
             >= self.indexer_state.indexing_settings.split_num_docs_target as u64
         {
-            self.send_to_packager(CommitTrigger::NumDocsLimit, ctx)?;
+            self.send_to_packager(CommitTrigger::NumDocsLimit, ctx)
+                .await?;
         }
         fail_point!("indexer:batch:after");
         Ok(())
     }
 
-    fn process_commit_timeout(
+    async fn process_commit_timeout(
         &mut self,
         split_id: &str,
         ctx: &ActorContext<Self>,
@@ -366,12 +375,12 @@ impl Indexer {
                 return Ok(());
             }
         }
-        self.send_to_packager(CommitTrigger::Timeout, ctx)?;
+        self.send_to_packager(CommitTrigger::Timeout, ctx).await?;
         Ok(())
     }
 
     /// Extract the indexed split and send it to the Packager.
-    fn send_to_packager(
+    async fn send_to_packager(
         &mut self,
         commit_trigger: CommitTrigger,
         ctx: &ActorContext<Self>,
@@ -382,12 +391,13 @@ impl Indexer {
             return Ok(());
         };
         info!(commit_trigger=?commit_trigger, split=?indexed_split.split_id, num_docs=self.counters.num_docs_in_split, "send-to-packager");
-        ctx.send_message_blocking(
+        ctx.send_message(
             &self.packager_mailbox,
             IndexedSplitBatch {
                 splits: vec![indexed_split],
             },
-        )?;
+        )
+        .await?;
         self.counters.num_docs_in_split = 0;
         self.counters.num_splits_emitted += 1;
         Ok(())
@@ -437,7 +447,7 @@ mod tests {
             mailbox,
         );
         let universe = Universe::new();
-        let (indexer_mailbox, indexer_handle) = universe.spawn_actor(indexer).spawn_sync();
+        let (indexer_mailbox, indexer_handle) = universe.spawn_actor(indexer).spawn();
         universe
             .send_message(
                 &indexer_mailbox,
@@ -516,7 +526,7 @@ mod tests {
             mailbox,
         );
         let universe = Universe::new();
-        let (indexer_mailbox, indexer_handle) = universe.spawn_actor(indexer).spawn_sync();
+        let (indexer_mailbox, indexer_handle) = universe.spawn_actor(indexer).spawn();
         universe
             .send_message(
                 &indexer_mailbox,
@@ -573,7 +583,7 @@ mod tests {
             mailbox,
         );
         let universe = Universe::new();
-        let (indexer_mailbox, indexer_handle) = universe.spawn_actor(indexer).spawn_sync();
+        let (indexer_mailbox, indexer_handle) = universe.spawn_actor(indexer).spawn();
         universe
             .send_message(
                 &indexer_mailbox,

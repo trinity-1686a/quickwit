@@ -338,62 +338,6 @@ fn should_activate_kill_switch(exit_status: &ActorExitStatus) -> bool {
     }
 }
 
-// impl<A: Actor + SyncActor> ActorContext<A> {
-// Blocking version version of `send_message`. See `.send_message(...)`.
-// pub fn send_message_blocking<Dest: Actor>(
-// &self,
-// mailbox: &Mailbox<Dest>,
-// msg: Dest::Message,
-// ) -> Result<(), crate::SendError> {
-// let _guard = self.protect_zone();
-// debug!(from=%self.self_mailbox.actor_instance_id(), to=%mailbox.actor_instance_id(), msg=?msg,
-// "send"); mailbox.send_message_blocking(msg)
-// }
-//
-// Blocking version of `send_exit_with_success`. See `send_exit_with_success`.
-// pub fn send_exit_with_success_blocking(
-// &self,
-// mailbox: &Mailbox<A>,
-// ) -> Result<(), crate::SendError> {
-// let _guard = self.protect_zone();
-// debug!(from=%self.self_mailbox.actor_instance_id(), to=%mailbox.actor_instance_id(), "success");
-// mailbox.send_with_priority_blocking(
-// CommandOrMessage::Command(Command::ExitWithSuccess),
-// Priority::Low,
-// )
-// }
-//
-// Sends a message to itself.
-//
-// Since it is very easy to deadlock an actor, the behavior is quite
-// different from `send_message_blocking`.
-//
-// If the message queue does not have the capacity to accept the message,
-// instead of blocking forever, we return an error right away.
-// pub fn send_self_message_blocking(&self, msg: A::Message) -> Result<(), crate::SendError> {
-// debug!(self=%self.self_mailbox.actor_instance_id(), msg=?msg, "self_send");
-// let send_res = self.self_mailbox.try_send_message(msg);
-// if let Err(crate::SendError::Full) = &send_res {
-// error!(self=%self.self_mailbox.actor_instance_id(),
-// "Attempted to send self message while the channel was full. This would have triggered a
-// deadlock"); }
-// send_res
-// }
-//
-// pub fn schedule_self_msg_blocking(&self, after_duration: Duration, msg: A::Message) {
-// let self_mailbox = self.inner.self_mailbox.clone();
-// let scheduler_msg = SchedulerMessage::ScheduleEvent {
-// timeout: after_duration,
-// callback: Callback(Box::pin(async move {
-// let _ = self_mailbox
-// .send_with_priority(CommandOrMessage::Message(msg), Priority::High)
-// .await;
-// })),
-// };
-// let _ = self.send_message_blocking(&self.inner.scheduler_mailbox, scheduler_msg);
-// }
-// }
-
 impl<A: Actor> ActorContext<A> {
     /// Posts a message in an actor's mailbox.
     ///
@@ -410,7 +354,7 @@ impl<A: Actor> ActorContext<A> {
     ) -> Result<oneshot::Receiver<Dest::Reply>, crate::SendError>
     where
         Dest: Handler<M>,
-        M: 'static + Send + Sync + fmt::Debug
+        M: 'static + Send + Sync + fmt::Debug,
     {
         let _guard = self.protect_zone();
         debug!(from=%self.self_mailbox.actor_instance_id(), send=%mailbox.actor_instance_id(), msg=?msg);
@@ -442,7 +386,7 @@ impl<A: Actor> ActorContext<A> {
     ) -> Result<oneshot::Receiver<A::Reply>, crate::SendError>
     where
         A: Handler<M>,
-        M: 'static + Sync+ Send + fmt::Debug
+        M: 'static + Sync + Send + fmt::Debug,
     {
         debug!(self=%self.self_mailbox.actor_instance_id(), msg=?msg, "self_send");
         self.self_mailbox.send_message(msg).await
@@ -451,7 +395,7 @@ impl<A: Actor> ActorContext<A> {
     pub async fn schedule_self_msg<M>(&self, after_duration: Duration, msg: M)
     where
         A: Handler<M>,
-        M: 'static + Send + Sync + fmt::Debug
+        M: 'static + Send + Sync + fmt::Debug,
     {
         let self_mailbox = self.inner.self_mailbox.clone();
         let (envelope, _response_rx) = wrap_in_async_envelope(msg);
@@ -501,7 +445,6 @@ pub(crate) fn process_command<A: Actor>(
 
 #[async_trait::async_trait]
 pub trait Handler<M>: Actor {
-
     type Reply: 'static + Send;
 
     /// Returns a context span for the processing of a specific

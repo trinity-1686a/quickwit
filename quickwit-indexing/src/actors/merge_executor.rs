@@ -23,9 +23,12 @@ use std::path::Path;
 use std::time::Instant;
 
 use anyhow::Context;
+use async_trait::async_trait;
 use fail::fail_point;
 use itertools::{izip, Itertools};
-use quickwit_actors::{Actor, ActorContext, ActorExitStatus, Mailbox, QueueCapacity, SyncActor};
+use quickwit_actors::{
+    Actor, ActorContext, ActorExitStatus, ActorRunner, Handler, Mailbox, QueueCapacity,
+};
 use quickwit_common::split_file;
 use quickwit_directories::{BundleDirectory, UnionDirectory};
 use quickwit_metastore::checkpoint::CheckpointDelta;
@@ -52,10 +55,13 @@ pub struct MergeExecutor {
     max_demuxed_split_num_docs: usize,
 }
 
+#[async_trait]
 impl Actor for MergeExecutor {
-    type Message = MergeScratch;
-
     type ObservableState = ();
+
+    fn runner(&self) -> ActorRunner {
+        ActorRunner::DedicatedThread
+    }
 
     fn observable_state(&self) -> Self::ObservableState {}
 
@@ -66,6 +72,11 @@ impl Actor for MergeExecutor {
     fn name(&self) -> String {
         "MergeExecutor".to_string()
     }
+}
+
+#[async_trait]
+impl Handler<MergeScratch> for MergeExecutor {
+    type Reply = ();
 
     fn message_span(&self, msg_id: u64, merge_scratch: &MergeScratch) -> Span {
         match &merge_scratch.merge_operation {
@@ -105,6 +116,42 @@ impl Actor for MergeExecutor {
             }
         }
     }
+
+    async fn handle(
+        &mut self,
+        merge_scratch: MergeScratch,
+        ctx: &ActorContext<Self>,
+    ) -> Result<(), ActorExitStatus> {
+        match merge_scratch.merge_operation {
+            MergeOperation::Merge {
+                merge_split_id: split_id,
+                splits,
+            } => {
+                self.process_merge(
+                    split_id,
+                    splits,
+                    merge_scratch.tantivy_dirs,
+                    merge_scratch.merge_scratch_directory,
+                    ctx,
+                )
+                .await?;
+            }
+            MergeOperation::Demux {
+                demux_split_ids,
+                splits,
+            } => {
+                self.process_demux(
+                    demux_split_ids,
+                    splits,
+                    merge_scratch.merge_scratch_directory,
+                    merge_scratch.downloaded_splits_directory,
+                    ctx,
+                )
+                .await?;
+            }
+        }
+        Ok(())
+    }
 }
 
 fn combine_index_meta(mut index_metas: Vec<IndexMeta>) -> anyhow::Result<IndexMeta> {
@@ -137,42 +184,6 @@ fn create_shadowing_meta_json_directory(index_meta: IndexMeta) -> anyhow::Result
     let ram_directory = RamDirectory::default();
     ram_directory.atomic_write(Path::new("meta.json"), union_index_meta_json.as_bytes())?;
     Ok(ram_directory)
-}
-
-impl SyncActor for MergeExecutor {
-    fn process_message(
-        &mut self,
-        merge_scratch: MergeScratch,
-        ctx: &ActorContext<Self>,
-    ) -> Result<(), ActorExitStatus> {
-        match merge_scratch.merge_operation {
-            MergeOperation::Merge {
-                merge_split_id: split_id,
-                splits,
-            } => {
-                self.process_merge(
-                    split_id,
-                    splits,
-                    merge_scratch.tantivy_dirs,
-                    merge_scratch.merge_scratch_directory,
-                    ctx,
-                )?;
-            }
-            MergeOperation::Demux {
-                demux_split_ids,
-                splits,
-            } => {
-                self.process_demux(
-                    demux_split_ids,
-                    splits,
-                    merge_scratch.merge_scratch_directory,
-                    merge_scratch.downloaded_splits_directory,
-                    ctx,
-                )?;
-            }
-        }
-        Ok(())
-    }
 }
 
 fn merge_time_range(splits: &[SplitMetadata]) -> Option<RangeInclusive<i64>> {
@@ -269,7 +280,7 @@ impl MergeExecutor {
         }
     }
 
-    fn process_merge(
+    async fn process_merge(
         &mut self,
         split_merge_id: String,
         splits: Vec<SplitMetadata>,
@@ -326,16 +337,17 @@ impl MergeExecutor {
             controlled_directory_opt: Some(controlled_directory),
         };
 
-        ctx.send_message_blocking(
+        ctx.send_message(
             &self.merge_packager_mailbox,
             IndexedSplitBatch {
                 splits: vec![indexed_split],
             },
-        )?;
+        )
+        .await?;
         Ok(())
     }
 
-    fn process_demux(
+    async fn process_demux(
         &mut self,
         demux_split_ids: Vec<String>,
         splits: Vec<SplitMetadata>,
@@ -478,12 +490,13 @@ impl MergeExecutor {
                 .map(|split| split.num_docs)
                 .sum::<u64>()
         );
-        ctx.send_message_blocking(
+        ctx.send_message(
             &self.merge_packager_mailbox,
             IndexedSplitBatch {
                 splits: indexed_splits,
             },
-        )?;
+        )
+        .await?;
         Ok(())
     }
 }
@@ -880,7 +893,7 @@ mod tests {
         );
         let universe = Universe::new();
         let (merge_executor_mailbox, merge_executor_handle) =
-            universe.spawn_actor(merge_executor).spawn_sync();
+            universe.spawn_actor(merge_executor).spawn();
         universe
             .send_message(&merge_executor_mailbox, merge_scratch)
             .await?;
@@ -986,7 +999,7 @@ mod tests {
         );
         let universe = Universe::new();
         let (merge_executor_mailbox, merge_executor_handle) =
-            universe.spawn_actor(merge_executor).spawn_sync();
+            universe.spawn_actor(merge_executor).spawn();
         universe
             .send_message(&merge_executor_mailbox, merge_scratch)
             .await?;

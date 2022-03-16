@@ -24,7 +24,7 @@ use std::sync::Arc;
 use anyhow::{bail, Context};
 use async_trait::async_trait;
 use quickwit_actors::{
-    Actor, ActorContext, ActorExitStatus, ActorHandle, AsyncActor, Health, Mailbox, Observation,
+    Actor, ActorContext, ActorExitStatus, ActorHandle, Handler, Health, Mailbox, Observation,
     Supervisable, Universe,
 };
 use quickwit_config::{IndexerConfig, SourceConfig, SourceParams, VecSourceParams};
@@ -193,7 +193,7 @@ impl IndexingServer {
             pipeline_handles: Default::default(),
             state: Default::default(),
         };
-        let (mailbox, handle) = universe.spawn_actor(server).spawn_async();
+        let (mailbox, handle) = universe.spawn_actor(server).spawn();
         IndexingServerClient {
             universe,
             mailbox,
@@ -304,7 +304,7 @@ impl IndexingServer {
         .await?;
 
         let pipeline = IndexingPipeline::new(pipeline_params);
-        let (_pipeline_mailbox, pipeline_handle) = ctx.spawn_actor(pipeline).spawn_async();
+        let (_pipeline_mailbox, pipeline_handle) = ctx.spawn_actor(pipeline).spawn();
         self.pipeline_handles.insert(pipeline_id, pipeline_handle);
         self.state.num_running_pipelines += 1;
         Ok(())
@@ -397,24 +397,26 @@ pub enum IndexingServerMessage {
     Supervise,
 }
 
+#[async_trait]
 impl Actor for IndexingServer {
-    type Message = IndexingServerMessage;
     type ObservableState = IndexingServerState;
 
     fn observable_state(&self) -> Self::ObservableState {
         self.state.clone()
     }
-}
 
-#[async_trait]
-impl AsyncActor for IndexingServer {
     async fn initialize(&mut self, ctx: &ActorContext<Self>) -> Result<(), ActorExitStatus> {
         self.supervise_pipelines(ctx).await;
         Ok(())
     }
-    async fn process_message(
+}
+
+#[async_trait]
+impl Handler<IndexingServerMessage> for IndexingServer {
+    type Reply = ();
+    async fn handle(
         &mut self,
-        message: Self::Message,
+        message: IndexingServerMessage,
         ctx: &ActorContext<Self>,
     ) -> Result<(), ActorExitStatus> {
         match message {

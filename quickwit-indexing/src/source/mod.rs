@@ -75,7 +75,7 @@ pub use file_source::{FileSource, FileSourceFactory};
 #[cfg(feature = "kafka")]
 pub use kafka_source::{KafkaSource, KafkaSourceFactory};
 use once_cell::sync::OnceCell;
-use quickwit_actors::{Actor, ActorContext, ActorExitStatus, AsyncActor, Mailbox};
+use quickwit_actors::{Actor, ActorContext, ActorExitStatus, Handler, Mailbox};
 use quickwit_config::{SourceConfig, SourceParams};
 pub use source_factory::{SourceFactory, SourceLoader, TypedSourceFactory};
 pub use vec_source::{VecSource, VecSourceFactory};
@@ -168,8 +168,8 @@ impl fmt::Debug for Loop {
     }
 }
 
+#[async_trait]
 impl Actor for SourceActor {
-    type Message = Loop;
     type ObservableState = serde_json::Value;
 
     fn name(&self) -> String {
@@ -179,23 +179,10 @@ impl Actor for SourceActor {
     fn observable_state(&self) -> Self::ObservableState {
         self.source.observable_state()
     }
-}
 
-#[async_trait]
-impl AsyncActor for SourceActor {
     async fn initialize(&mut self, ctx: &SourceContext) -> Result<(), ActorExitStatus> {
         self.source.initialize(ctx).await?;
-        self.process_message(Loop(PrivateToken), ctx).await?;
-        Ok(())
-    }
-
-    async fn process_message(
-        &mut self,
-        _message: Loop,
-        ctx: &SourceContext,
-    ) -> Result<(), ActorExitStatus> {
-        self.source.emit_batches(&self.batch_sink, ctx).await?;
-        ctx.send_self_message(Loop(PrivateToken)).await?;
+        self.handle(Loop(PrivateToken), ctx).await?;
         Ok(())
     }
 
@@ -205,6 +192,17 @@ impl AsyncActor for SourceActor {
         ctx: &SourceContext,
     ) -> anyhow::Result<()> {
         self.source.finalize(exit_status, ctx).await?;
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl Handler<Loop> for SourceActor {
+    type Reply = ();
+
+    async fn handle(&mut self, _message: Loop, ctx: &SourceContext) -> Result<(), ActorExitStatus> {
+        self.source.emit_batches(&self.batch_sink, ctx).await?;
+        ctx.send_self_message(Loop(PrivateToken)).await?;
         Ok(())
     }
 }
