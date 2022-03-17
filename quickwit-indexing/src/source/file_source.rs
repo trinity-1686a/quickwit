@@ -258,10 +258,7 @@ mod tests {
             &extract_position_delta(&batch2.checkpoint_delta).unwrap(),
             "00000000000000500010..00000000000000700000"
         );
-        assert!(matches!(
-            &msg3,
-            &Command::ExitWithSuccess
-        ));
+        assert!(matches!(&msg3, &Command::ExitWithSuccess));
         Ok(())
     }
 
@@ -311,7 +308,7 @@ mod tests {
             })
         );
         let indexer_msgs = inbox.drain_available_message_for_test();
-        let received_batch =  indexer_msgs[0].downcast::<RawDocBatch>().unwrap();
+        let received_batch = indexer_msgs[0].downcast::<RawDocBatch>().unwrap();
         assert!(received_batch.docs[0].starts_with("2\n"));
         Ok(())
     }

@@ -269,12 +269,12 @@ impl<A: Actor> Inbox<A> {
     /// Warning this iterator might never be exhausted if there is a living
     /// mailbox associated to it.
     pub fn drain_available_message_or_command_for_test(self) -> Vec<Box<dyn Any>> {
-         self.rx
+        self.rx
             .drain_low_priority()
             .into_iter()
             .map(|command_or_message| match command_or_message {
                 CommandOrMessage::Message(mut msg) => msg.message(),
-                CommandOrMessage::Command(cmd) => Box::new(cmd)
+                CommandOrMessage::Command(cmd) => Box::new(cmd),
             })
             .collect()
     }

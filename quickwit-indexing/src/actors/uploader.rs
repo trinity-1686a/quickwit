@@ -149,7 +149,7 @@ impl Handler<PackagedSplitBatch> for Uploader {
             async move {
                 fail_point!("uploader:intask:before");
                 let mut packaged_splits_and_metadatas = Vec::new();
-                for split in batch.into_iter() {
+                for split in batch.splits {
                     let upload_result = stage_and_upload_split(
                         &split,
                         &index_storage,

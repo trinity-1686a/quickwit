@@ -359,6 +359,7 @@ mod tests {
         let mut merge_planner_msgs = merge_planner_inbox.drain_available_message_for_test();
         assert_eq!(merge_planner_msgs.len(), 1);
         let merge_planner_msg = merge_planner_msgs.pop().unwrap();
-        assert_eq!(merge_planner_msg, ""); // MergePlannerMessage { new_splits } if new_splits.len() == 1)
+        assert_eq!(merge_planner_msg, ""); // MergePlannerMessage { new_splits } if new_splits.len()
+                                           // == 1)
     }
 }

@@ -105,8 +105,7 @@ impl Universe {
     pub async fn send_exit_with_success<A: Actor>(
         &self,
         mailbox: &Mailbox<A>,
-    ) -> Result<(), crate::SendError>
-    {
+    ) -> Result<(), crate::SendError> {
         mailbox
             .send_with_priority(
                 CommandOrMessage::Command(Command::ExitWithSuccess),

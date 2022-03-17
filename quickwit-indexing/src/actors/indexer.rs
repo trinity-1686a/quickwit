@@ -33,13 +33,11 @@ use tantivy::{Document, IndexBuilder, IndexSettings, IndexSortByField};
 use tracing::{info, warn};
 
 use crate::actors::Packager;
-use crate::models::{
-    IndexedSplit, IndexedSplitBatch, IndexingDirectory, RawDocBatch,
-};
+use crate::models::{IndexedSplit, IndexedSplitBatch, IndexingDirectory, RawDocBatch};
 
 #[derive(Debug)]
 struct CommitTimeout {
-    split_id: String
+    split_id: String,
 }
 
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
@@ -298,7 +296,8 @@ impl Handler<CommitTimeout> for Indexer {
         commit_timeout: CommitTimeout,
         ctx: &ActorContext<Self>,
     ) -> Result<(), ActorExitStatus> {
-        self.process_commit_timeout(&commit_timeout.split_id, ctx).await?;
+        self.process_commit_timeout(&commit_timeout.split_id, ctx)
+            .await?;
         Ok(())
     }
 }
@@ -470,7 +469,7 @@ mod tests {
                         "{".to_string(),                    // invalid json
                     ],
                     checkpoint_delta: CheckpointDelta::from(0..4),
-                }
+                },
             )
             .await?;
         let indexer_counters = indexer_handle.process_pending_and_observe().await.state;
@@ -508,13 +507,13 @@ mod tests {
         );
         let output_messages = inbox.drain_available_message_for_test();
         assert_eq!(output_messages.len(), 1);
-        let batch = output_messages.pop().unwrap().downcast::<IndexedSplitBatch>().unwrap();
+        let batch = output_messages
+            .pop()
+            .unwrap()
+            .downcast::<IndexedSplitBatch>()
+            .unwrap();
         assert_eq!(batch.splits[0].num_docs, 3);
-        let sort_by_field = batch.splits[0]
-            .index
-            .settings()
-            .sort_by_field
-            .as_ref();
+        let sort_by_field = batch.splits[0].index.settings().sort_by_field.as_ref();
         assert!(sort_by_field.is_some());
         assert_eq!(sort_by_field.unwrap().field, "timestamp");
         assert!(sort_by_field.unwrap().order.is_desc());
@@ -573,7 +572,9 @@ mod tests {
         );
         let output_messages = inbox.drain_available_message_for_test();
         assert_eq!(output_messages.len(), 1);
-        let indexed_split_batch = output_messages[0].downcast_ref::<IndexedSplitBatch>().unwrap();
+        let indexed_split_batch = output_messages[0]
+            .downcast_ref::<IndexedSplitBatch>()
+            .unwrap();
         assert_eq!(indexed_split_batch.splits[0].num_docs, 1);
         Ok(())
     }
@@ -619,7 +620,14 @@ mod tests {
         );
         let output_messages = inbox.drain_available_message_for_test();
         assert_eq!(output_messages.len(), 1);
-        assert_eq!(output_messages[0].downcast_ref::<IndexedSplitBatch>().unwrap().splits[0].num_docs, 1);
+        assert_eq!(
+            output_messages[0]
+                .downcast_ref::<IndexedSplitBatch>()
+                .unwrap()
+                .splits[0]
+                .num_docs,
+            1
+        );
         Ok(())
     }
 }

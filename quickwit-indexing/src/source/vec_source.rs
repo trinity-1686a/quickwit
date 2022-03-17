@@ -91,8 +91,7 @@ impl Source for VecSource {
             docs: line_docs,
             checkpoint_delta,
         };
-        ctx.send_message(batch_sink, batch)
-            .await?;
+        ctx.send_message(batch_sink, batch).await?;
         Ok(())
     }
 
@@ -142,7 +141,9 @@ mod tests {
         assert_eq!(last_observation, json!({"next_item_idx": 100u64}));
         let batches = inbox.drain_available_message_or_command_for_test();
         assert_eq!(batches.len(), 35);
-        assert_eq!(&batches[1], "Batch "); //CommandOrMessage::Message(IndexerMessage::Batch(ref raw_batch)) if format!("{:?}", raw_batch.checkpoint_delta) == "∆(partition:(00000000000000000002..00000000000000000005])")
+        assert_eq!(&batches[1], "Batch "); // CommandOrMessage::Message(IndexerMessage::Batch(ref raw_batch)) if format!("{:?}",
+                                           // raw_batch.checkpoint_delta) ==
+                                           // "∆(partition:(00000000000000000002..00000000000000000005])")
         assert_eq!(&batches[34], "ExitWithSuccess");
         Ok(())
     }

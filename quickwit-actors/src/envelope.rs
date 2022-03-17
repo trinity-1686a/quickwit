@@ -27,7 +27,6 @@ use crate::{Actor, ActorContext, ActorExitStatus, Handler};
 
 #[async_trait::async_trait]
 pub trait Envelope<A: Actor>: Send + Sync {
-
     fn debug_msg(&self) -> String;
 
     fn message(&mut self) -> Box<dyn Any>;
@@ -46,7 +45,6 @@ where
     A: Handler<M>,
     M: 'static + Send + Sync + fmt::Debug,
 {
-
     fn debug_msg(&self) -> String {
         if let Some((_response_tx, msg)) = self.as_ref().take() {
             format!("{msg:?}")
