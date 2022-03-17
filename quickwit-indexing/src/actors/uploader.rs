@@ -273,6 +273,7 @@ mod tests {
     use quickwit_metastore::checkpoint::CheckpointDelta;
     use quickwit_metastore::MockMetastore;
     use quickwit_storage::RamStorage;
+    use tokio::sync::oneshot;
 
     use super::*;
     use crate::models::ScratchDirectory;
@@ -327,26 +328,29 @@ mod tests {
             uploader_handle.process_pending_and_observe().await.obs_type,
             ObservationType::Alive
         );
-        let publish_futures = inbox.drain_available_message_for_test();
+        let mut publish_futures = inbox.drain_for_test();
         assert_eq!(publish_futures.len(), 1);
-        assert_eq!(publish_futures[0], "");
-        // let publish_future = publish_futures.into_iter().next().unwrap();
-        // let publisher_message = publish_future.await?;
-        // assert_eq!(&publisher_message.index_id, "test-index");
-        // if let PublishOperation::PublishNewSplit {
-        //     new_split,
-        //     checkpoint_delta,
-        //     ..
-        // } = publisher_message.operation
-        // {
-        //     assert_eq!(new_split.split_id(), "test-split");
-        //     assert_eq!(checkpoint_delta, CheckpointDelta::from(3..15));
-        // } else {
-        //     panic!("Expected publish new split operation");
-        // }
-        // let mut files = ram_storage.list_files().await;
-        // files.sort();
-        // assert_eq!(&files, &[PathBuf::from("test-split.split")]);
+        let publish_future = *publish_futures
+            .pop()
+            .unwrap()
+            .downcast::<oneshot::Receiver<PublisherMessage>>()
+            .unwrap();
+        let publisher_message = publish_future.await?;
+        assert_eq!(&publisher_message.index_id, "test-index");
+        if let PublishOperation::PublishNewSplit {
+            new_split,
+            checkpoint_delta,
+            ..
+        } = publisher_message.operation
+        {
+            assert_eq!(new_split.split_id(), "test-split");
+            assert_eq!(checkpoint_delta, CheckpointDelta::from(3..15));
+        } else {
+            panic!("Expected publish new split operation");
+        }
+        let mut files = ram_storage.list_files().await;
+        files.sort();
+        assert_eq!(&files, &[PathBuf::from("test-split.split")]);
         Ok(())
     }
 
@@ -424,34 +428,38 @@ mod tests {
             uploader_handle.process_pending_and_observe().await.obs_type,
             ObservationType::Alive
         );
-        let publish_futures = inbox.drain_available_message_for_test();
+        let publish_futures = inbox.drain_for_test();
         assert_eq!(publish_futures.len(), 1);
-        let publish_message = publish_futures.into_iter().next().unwrap();
-        assert_eq!(publish_message, "");
-        // let publisher_message = publish_future.await?;
-        // assert_eq!(&publisher_message.index_id, "test-index");
-        // if let PublishOperation::ReplaceSplits {
-        //     new_splits,
-        //     mut replaced_split_ids,
-        // } = publisher_message.operation
-        // {
-        //     // Sort first to avoid test failing.
-        //     replaced_split_ids.sort();
-        //     assert_eq!(new_splits.len(), 2);
-        //     assert_eq!(new_splits[0].split_id(), "test-split-1");
-        //     assert_eq!(new_splits[1].split_id(), "test-split-2");
-        //     assert_eq!(
-        //         &replaced_split_ids,
-        //         &[
-        //             "replaced-split-1".to_string(),
-        //             "replaced-split-2".to_string()
-        //         ]
-        //     );
-        //     assert_eq!(new_splits[0].demux_num_ops, 1);
-        //     assert_eq!(new_splits[1].demux_num_ops, 1);
-        // } else {
-        //     panic!("Expected publish new split operation");
-        // }
+        let publish_future = publish_futures
+            .into_iter()
+            .next()
+            .unwrap()
+            .downcast::<oneshot::Receiver<PublisherMessage>>()
+            .unwrap();
+        let publisher_message = publish_future.await?;
+        assert_eq!(&publisher_message.index_id, "test-index");
+        if let PublishOperation::ReplaceSplits {
+            new_splits,
+            mut replaced_split_ids,
+        } = publisher_message.operation
+        {
+            // Sort first to avoid test failing.
+            replaced_split_ids.sort();
+            assert_eq!(new_splits.len(), 2);
+            assert_eq!(new_splits[0].split_id(), "test-split-1");
+            assert_eq!(new_splits[1].split_id(), "test-split-2");
+            assert_eq!(
+                &replaced_split_ids,
+                &[
+                    "replaced-split-1".to_string(),
+                    "replaced-split-2".to_string()
+                ]
+            );
+            assert_eq!(new_splits[0].demux_num_ops, 1);
+            assert_eq!(new_splits[1].demux_num_ops, 1);
+        } else {
+            panic!("Expected publish new split operation");
+        }
         let mut files = ram_storage.list_files().await;
         files.sort();
         assert_eq!(

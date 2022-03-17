@@ -356,10 +356,11 @@ mod tests {
             .is_ok());
         let publisher_observation = publisher_handle.process_pending_and_observe().await.state;
         assert_eq!(publisher_observation.num_published_splits, 1);
-        let mut merge_planner_msgs = merge_planner_inbox.drain_available_message_for_test();
+        let merge_planner_msgs = merge_planner_inbox.drain_for_test();
         assert_eq!(merge_planner_msgs.len(), 1);
-        let merge_planner_msg = merge_planner_msgs.pop().unwrap();
-        assert_eq!(merge_planner_msg, ""); // MergePlannerMessage { new_splits } if new_splits.len()
-                                           // == 1)
+        let merge_planner_msg = merge_planner_msgs[0]
+            .downcast_ref::<MergePlannerMessage>()
+            .unwrap();
+        assert_eq!(merge_planner_msg.new_splits.len(), 1);
     }
 }

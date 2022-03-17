@@ -193,9 +193,12 @@ mod tests {
                 "num_lines_processed": 4u32
             })
         );
-        let batch = inbox.drain_available_message_or_command_for_test();
+        let batch = inbox.drain_for_test();
         assert_eq!(batch.len(), 2);
-        assert_eq!(batch[1], "ExitWithSuccess");
+        assert!(matches!(
+            batch[1].downcast_ref::<Command>().unwrap(),
+            Command::ExitWithSuccess
+        ));
         Ok(())
     }
 
@@ -237,12 +240,11 @@ mod tests {
                 "num_lines_processed": 20_000u64
             })
         );
-        let indexer_msgs = inbox.drain_available_message_or_command_for_test();
+        let indexer_msgs = inbox.drain_for_test();
         assert_eq!(indexer_msgs.len(), 3);
-        let mut msgs_it = indexer_msgs.into_iter();
-        let batch1 = msgs_it.next().unwrap().downcast::<RawDocBatch>().unwrap();
-        let batch2 = msgs_it.next().unwrap().downcast::<RawDocBatch>().unwrap();
-        let msg3 = msgs_it.next().unwrap().downcast::<Command>().unwrap();
+        let batch1 = indexer_msgs[0].downcast_ref::<RawDocBatch>().unwrap();
+        let batch2 = indexer_msgs[1].downcast_ref::<RawDocBatch>().unwrap();
+        let command = indexer_msgs[2].downcast_ref::<Command>().unwrap();
         assert_eq!(
             format!("{:?}", &batch1.checkpoint_delta),
             format!(
@@ -258,7 +260,7 @@ mod tests {
             &extract_position_delta(&batch2.checkpoint_delta).unwrap(),
             "00000000000000500010..00000000000000700000"
         );
-        assert!(matches!(&msg3, &Command::ExitWithSuccess));
+        assert!(matches!(command, &Command::ExitWithSuccess));
         Ok(())
     }
 
@@ -307,8 +309,8 @@ mod tests {
                 "num_lines_processed": 98u64
             })
         );
-        let indexer_msgs = inbox.drain_available_message_for_test();
-        let received_batch = indexer_msgs[0].downcast::<RawDocBatch>().unwrap();
+        let indexer_msgs = inbox.drain_for_test();
+        let received_batch = indexer_msgs[0].downcast_ref::<RawDocBatch>().unwrap();
         assert!(received_batch.docs[0].starts_with("2\n"));
         Ok(())
     }

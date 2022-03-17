@@ -108,7 +108,7 @@ impl Source for VecSource {
 
 #[cfg(test)]
 mod tests {
-    use quickwit_actors::{create_test_mailbox, Actor, Universe};
+    use quickwit_actors::{create_test_mailbox, Actor, Command, Universe};
     use serde_json::json;
 
     use super::*;
@@ -139,12 +139,17 @@ mod tests {
         let (actor_termination, last_observation) = vec_source_handle.join().await;
         assert!(actor_termination.is_success());
         assert_eq!(last_observation, json!({"next_item_idx": 100u64}));
-        let batches = inbox.drain_available_message_or_command_for_test();
+        let batches = inbox.drain_for_test();
         assert_eq!(batches.len(), 35);
-        assert_eq!(&batches[1], "Batch "); // CommandOrMessage::Message(IndexerMessage::Batch(ref raw_batch)) if format!("{:?}",
-                                           // raw_batch.checkpoint_delta) ==
-                                           // "∆(partition:(00000000000000000002..00000000000000000005])")
-        assert_eq!(&batches[34], "ExitWithSuccess");
+        let raw_batch = batches[1].downcast_ref::<RawDocBatch>().unwrap();
+        assert_eq!(
+            format!("{:?}", raw_batch.checkpoint_delta),
+            "∆(partition:(00000000000000000002..00000000000000000005])"
+        );
+        assert!(matches!(
+            &batches[34].downcast_ref::<Command>().unwrap(),
+            &Command::ExitWithSuccess
+        ));
         Ok(())
     }
 
@@ -172,7 +177,7 @@ mod tests {
         let (actor_termination, last_observation) = vec_source_handle.join().await;
         assert!(actor_termination.is_success());
         assert_eq!(last_observation, json!({"next_item_idx": 10}));
-        let messages = inbox.drain_available_message_for_test();
+        let messages = inbox.drain_for_test();
         let batch = messages[0].downcast_ref::<RawDocBatch>().unwrap();
         assert_eq!(&batch.docs[0], "2");
         Ok(())

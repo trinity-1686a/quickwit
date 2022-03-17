@@ -831,7 +831,7 @@ mod kafka_broker_tests {
             let (exit_status, exit_state) = handle.join().await;
             assert!(exit_status.is_success());
 
-            let messages = inbox.drain_available_message_for_test();
+            let messages = inbox.drain_for_test();
             assert!(messages.is_empty());
 
             let expected_current_positions: Vec<(i32, i64)> = vec![];
@@ -878,7 +878,7 @@ mod kafka_broker_tests {
             let (exit_status, state) = handle.join().await;
             assert!(exit_status.is_success());
 
-            let messages = inbox.drain_available_message_for_test();
+            let messages = inbox.drain_for_test();
             assert!(messages.len() >= 1);
 
             let batch = merge_messages(messages)?;
@@ -932,7 +932,7 @@ mod kafka_broker_tests {
             let (exit_status, exit_state) = handle.join().await;
             assert!(exit_status.is_success());
 
-            let messages = inbox.drain_available_message_for_test();
+            let messages = inbox.drain_for_test();
             assert!(messages.len() >= 1);
 
             let batch = merge_messages(messages)?;

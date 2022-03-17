@@ -265,19 +265,23 @@ mod tests {
             loop {
                 let obs = merge_planner_handler.process_pending_and_observe().await;
                 assert_eq!(obs.obs_type, ObservationType::Alive);
-                let merge_ops = merge_op_inbox.drain_available_message_for_test();
+                let merge_ops: Vec<MergeOperation> = merge_op_inbox
+                    .drain_for_test()
+                    .into_iter()
+                    .flat_map(|op| op.downcast::<MergeOperation>())
+                    .map(|op| *op)
+                    .collect();
                 if merge_ops.is_empty() {
                     break;
                 }
-                for merge_MergeOperationop in merge_ops {
-                    // TODO
-                    // let splits = apply_merge(&mut split_index, &merge_op);
-                    // universe
-                    //     .send_message(
-                    //         &merge_planner_mailbox,
-                    //         MergePlannerMessage { new_splits: splits },
-                    //     )
-                    //     .await?;
+                for merge_op in merge_ops {
+                    let splits = apply_merge(&mut split_index, &merge_op);
+                    universe
+                        .send_message(
+                            &merge_planner_mailbox,
+                            MergePlannerMessage { new_splits: splits },
+                        )
+                        .await?;
                 }
             }
             let split_metadatas: Vec<SplitMetadata> = split_index.values().cloned().collect();

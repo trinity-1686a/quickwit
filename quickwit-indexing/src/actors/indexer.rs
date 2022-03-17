@@ -505,12 +505,10 @@ mod tests {
                 overall_num_bytes: 525
             }
         );
-        let output_messages = inbox.drain_available_message_for_test();
+        let output_messages = inbox.drain_for_test();
         assert_eq!(output_messages.len(), 1);
-        let batch = output_messages
-            .pop()
-            .unwrap()
-            .downcast::<IndexedSplitBatch>()
+        let batch = output_messages[0]
+            .downcast_ref::<IndexedSplitBatch>()
             .unwrap();
         assert_eq!(batch.splits[0].num_docs, 3);
         let sort_by_field = batch.splits[0].index.settings().sort_by_field.as_ref();
@@ -570,7 +568,7 @@ mod tests {
                 overall_num_bytes: 137
             }
         );
-        let output_messages = inbox.drain_available_message_for_test();
+        let output_messages = inbox.drain_for_test();
         assert_eq!(output_messages.len(), 1);
         let indexed_split_batch = output_messages[0]
             .downcast_ref::<IndexedSplitBatch>()
@@ -618,7 +616,7 @@ mod tests {
                 overall_num_bytes: 137
             }
         );
-        let output_messages = inbox.drain_available_message_for_test();
+        let output_messages = inbox.drain_for_test();
         assert_eq!(output_messages.len(), 1);
         assert_eq!(
             output_messages[0]

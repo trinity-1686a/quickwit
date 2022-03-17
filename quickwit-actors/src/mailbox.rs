@@ -248,27 +248,12 @@ impl<A: Actor> Inbox<A> {
             .recv_high_priority_timeout_blocking(crate::message_timeout())
     }
 
-    /// Destroys the inbox and returns the list of pending messages.
-    /// Commands are ignored.
+    /// Destroys the inbox and returns the list of pending messages or commands
+    /// in the low priority channel.
     ///
     /// Warning this iterator might never be exhausted if there is a living
     /// mailbox associated to it.
-    pub fn drain_available_message_for_test(&self) -> Vec<Box<dyn Any>> {
-        self.rx
-            .drain_low_priority()
-            .into_iter()
-            .flat_map(|command_or_message| match command_or_message {
-                CommandOrMessage::Message(mut msg) => Some(msg.message()),
-                CommandOrMessage::Command(_) => None,
-            })
-            .collect()
-    }
-
-    /// Destroys the inbox and returns the list of pending messages or commands.
-    ///
-    /// Warning this iterator might never be exhausted if there is a living
-    /// mailbox associated to it.
-    pub fn drain_available_message_or_command_for_test(self) -> Vec<Box<dyn Any>> {
+    pub fn drain_for_test(&self) -> Vec<Box<dyn Any>> {
         self.rx
             .drain_low_priority()
             .into_iter()
