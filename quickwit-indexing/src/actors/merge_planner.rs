@@ -246,7 +246,7 @@ mod tests {
         incoming_splits: Vec<SplitMetadata>,
         predicate: Pred,
     ) -> anyhow::Result<()> {
-        let (merge_op_mailbox, merge_op_inbox) = create_test_mailbox::<MergeOperation>();
+        let (merge_op_mailbox, merge_op_inbox) = create_test_mailbox::<MergeSplitDownloader>();
         let merge_planner = MergePlanner::new(Vec::new(), merge_policy, merge_op_mailbox);
         let universe = Universe::new();
         let mut split_index: HashMap<String, SplitMetadata> = HashMap::default();
@@ -269,14 +269,15 @@ mod tests {
                 if merge_ops.is_empty() {
                     break;
                 }
-                for merge_op in merge_ops {
-                    let splits = apply_merge(&mut split_index, &merge_op);
-                    universe
-                        .send_message(
-                            &merge_planner_mailbox,
-                            MergePlannerMessage { new_splits: splits },
-                        )
-                        .await?;
+                for merge_MergeOperationop in merge_ops {
+                    // TODO
+                    // let splits = apply_merge(&mut split_index, &merge_op);
+                    // universe
+                    //     .send_message(
+                    //         &merge_planner_mailbox,
+                    //         MergePlannerMessage { new_splits: splits },
+                    //     )
+                    //     .await?;
                 }
             }
             let split_metadatas: Vec<SplitMetadata> = split_index.values().cloned().collect();

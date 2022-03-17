@@ -24,7 +24,7 @@ use quickwit_metastore::checkpoint::{CheckpointDelta, PartitionId, Position, Sou
 use tracing::info;
 
 use crate::actors::Indexer;
-use crate::models::{IndexerMessage, RawDocBatch};
+use crate::models::RawDocBatch;
 use crate::source::{Source, SourceContext, TypedSourceFactory};
 
 pub struct VecSource {
@@ -91,7 +91,7 @@ impl Source for VecSource {
             docs: line_docs,
             checkpoint_delta,
         };
-        ctx.send_message(batch_sink, IndexerMessage::from(batch))
+        ctx.send_message(batch_sink, batch)
             .await?;
         Ok(())
     }
@@ -109,7 +109,7 @@ impl Source for VecSource {
 
 #[cfg(test)]
 mod tests {
-    use quickwit_actors::{create_test_mailbox, Actor, Command, CommandOrMessage, Universe};
+    use quickwit_actors::{create_test_mailbox, Actor, Universe};
     use serde_json::json;
 
     use super::*;
@@ -139,16 +139,11 @@ mod tests {
             universe.spawn_actor(vec_source_actor).spawn();
         let (actor_termination, last_observation) = vec_source_handle.join().await;
         assert!(actor_termination.is_success());
-        assert_eq!(last_observation, json!({"next_item_idx": 100}));
+        assert_eq!(last_observation, json!({"next_item_idx": 100u64}));
         let batches = inbox.drain_available_message_or_command_for_test();
         assert_eq!(batches.len(), 35);
-        assert!(
-            matches!(&batches[1], &CommandOrMessage::Message(IndexerMessage::Batch(ref raw_batch)) if format!("{:?}", raw_batch.checkpoint_delta) == "∆(partition:(00000000000000000002..00000000000000000005])")
-        );
-        assert!(matches!(
-            &batches[34],
-            &CommandOrMessage::Command(Command::ExitWithSuccess)
-        ));
+        assert_eq!(&batches[1], "Batch "); //CommandOrMessage::Message(IndexerMessage::Batch(ref raw_batch)) if format!("{:?}", raw_batch.checkpoint_delta) == "∆(partition:(00000000000000000002..00000000000000000005])")
+        assert_eq!(&batches[34], "ExitWithSuccess");
         Ok(())
     }
 
@@ -177,9 +172,8 @@ mod tests {
         assert!(actor_termination.is_success());
         assert_eq!(last_observation, json!({"next_item_idx": 10}));
         let messages = inbox.drain_available_message_for_test();
-        assert!(
-            matches!(&messages[0], &IndexerMessage::Batch(ref raw_batch) if &raw_batch.docs[0] == "2")
-        );
+        let batch = messages[0].downcast_ref::<RawDocBatch>().unwrap();
+        assert_eq!(&batch.docs[0], "2");
         Ok(())
     }
 }

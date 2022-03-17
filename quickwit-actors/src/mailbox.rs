@@ -248,30 +248,36 @@ impl<A: Actor> Inbox<A> {
             .recv_high_priority_timeout_blocking(crate::message_timeout())
     }
 
-    // /// Destroys the inbox and returns the list of pending messages.
-    // /// Commands are ignored.
-    // ///
-    // /// Warning this iterator might never be exhausted if there is a living
-    // /// mailbox associated to it.
-    // pub fn drain_available_message_for_test(&self) -> Vec<A::Message> {
-    //     self.rx
-    //         .drain_low_priority()
-    //         .into_iter()
-    //         .flat_map(|command_or_message| match command_or_message {
-    //             CommandOrMessage::Message(msg) => Some(msg),
-    //             CommandOrMessage::Command(_) => None,
-    //             CommandOrMessage::AsyncMessage(_) => todo!(),
-    //         })
-    //         .collect()
-    // }
+    /// Destroys the inbox and returns the list of pending messages.
+    /// Commands are ignored.
+    ///
+    /// Warning this iterator might never be exhausted if there is a living
+    /// mailbox associated to it.
+    pub fn drain_available_message_for_test(&self) -> Vec<Box<dyn Any>> {
+        self.rx
+            .drain_low_priority()
+            .into_iter()
+            .flat_map(|command_or_message| match command_or_message {
+                CommandOrMessage::Message(mut msg) => Some(msg.message()),
+                CommandOrMessage::Command(_) => None,
+            })
+            .collect()
+    }
 
-    // /// Destroys the inbox and returns the list of pending messages or commands.
-    // ///
-    // /// Warning this iterator might never be exhausted if there is a living
-    // /// mailbox associated to it.
-    // pub fn drain_available_message_or_command_for_test(mut self) -> Vec<CommandOrMessage<A>> {
-    //     self.rx.drain_all()
-    // }
+    /// Destroys the inbox and returns the list of pending messages or commands.
+    ///
+    /// Warning this iterator might never be exhausted if there is a living
+    /// mailbox associated to it.
+    pub fn drain_available_message_or_command_for_test(self) -> Vec<Box<dyn Any>> {
+         self.rx
+            .drain_low_priority()
+            .into_iter()
+            .map(|command_or_message| match command_or_message {
+                CommandOrMessage::Message(mut msg) => msg.message(),
+                CommandOrMessage::Command(cmd) => Box::new(cmd)
+            })
+            .collect()
+    }
 }
 
 pub fn create_mailbox<A: Actor>(

@@ -116,15 +116,15 @@ impl<T> Sender<T> {
         Ok(())
     }
 
-    pub fn send_blocking(&self, msg: T, priority: Priority) -> Result<(), SendError> {
-        self.channel(priority).send(msg)?;
-        Ok(())
-    }
+    // pub fn send_blocking(&self, msg: T, priority: Priority) -> Result<(), SendError> {
+    //     self.channel(priority).send(msg)?;
+    //     Ok(())
+    // }
 
-    pub fn try_send(&self, msg: T, priority: Priority) -> Result<(), SendError> {
-        self.channel(priority).try_send(msg)?;
-        Ok(())
-    }
+    // pub fn try_send(&self, msg: T, priority: Priority) -> Result<(), SendError> {
+    //     self.channel(priority).try_send(msg)?;
+    //     Ok(())
+    // }
 }
 
 pub struct Receiver<T> {
@@ -345,86 +345,6 @@ mod tests {
         assert_eq!(receiver.recv_timeout(TEST_TIMEOUT).await, Ok(2));
         assert_eq!(
             receiver.recv_timeout(TEST_TIMEOUT).await,
-            Err(RecvError::Disconnected)
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_recv_timeout_prority_blocking() -> anyhow::Result<()> {
-        let (sender, mut receiver) = super::channel::<usize>(QueueCapacity::Unbounded);
-        sender.send_blocking(1, Priority::Low)?;
-        sender.send_blocking(2, Priority::High)?;
-        assert_eq!(receiver.recv_timeout_blocking(TEST_TIMEOUT), Ok(2));
-        assert_eq!(receiver.recv_timeout_blocking(TEST_TIMEOUT), Ok(1));
-        assert_eq!(
-            receiver.recv_timeout_blocking(TEST_TIMEOUT),
-            Err(RecvError::Timeout)
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_recv_high_priority_timeout_blocking() -> anyhow::Result<()> {
-        let (sender, mut receiver) = super::channel::<usize>(QueueCapacity::Unbounded);
-        sender.send_blocking(1, Priority::Low)?;
-        assert_eq!(
-            receiver.recv_high_priority_timeout_blocking(TEST_TIMEOUT),
-            Err(RecvError::Timeout)
-        );
-        Ok(())
-    }
-
-    // TODO we probably want to change the behavior of this one.
-    // Returning disconnected if the sender has been dropped would be nicer.
-    #[test]
-    fn test_recv_high_priority_ignore_disconnection_blocking() -> anyhow::Result<()> {
-        let (sender, mut receiver) = super::channel::<usize>(QueueCapacity::Unbounded);
-        std::mem::drop(sender);
-        assert_eq!(
-            receiver.recv_high_priority_timeout_blocking(TEST_TIMEOUT),
-            Err(RecvError::Timeout)
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_recv_disconnect_blocking() -> anyhow::Result<()> {
-        let (sender, mut receiver) = super::channel::<usize>(QueueCapacity::Unbounded);
-        std::mem::drop(sender);
-        assert_eq!(
-            receiver.recv_timeout_blocking(TEST_TIMEOUT),
-            Err(RecvError::Disconnected)
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_recv_timeout_simple_blocking() -> anyhow::Result<()> {
-        let (_sender, mut receiver) = super::channel::<usize>(QueueCapacity::Unbounded);
-        let start_time = Instant::now();
-        assert_eq!(
-            receiver.recv_timeout_blocking(TEST_TIMEOUT),
-            Err(RecvError::Timeout)
-        );
-        let elapsed = start_time.elapsed();
-        assert!(elapsed < crate::HEARTBEAT);
-        Ok(())
-    }
-
-    #[test]
-    fn test_try_recv_prority_corner_case_blocking() -> anyhow::Result<()> {
-        let (sender, mut receiver) = super::channel::<usize>(QueueCapacity::Unbounded);
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(10));
-            sender.send_blocking(1, Priority::High)?;
-            sender.send_blocking(2, Priority::Low)?;
-            Result::<(), SendError>::Ok(())
-        });
-        assert_eq!(receiver.recv_timeout_blocking(TEST_TIMEOUT), Ok(1));
-        assert_eq!(receiver.recv_timeout_blocking(TEST_TIMEOUT), Ok(2));
-        assert_eq!(
-            receiver.recv_timeout_blocking(TEST_TIMEOUT),
             Err(RecvError::Disconnected)
         );
         Ok(())

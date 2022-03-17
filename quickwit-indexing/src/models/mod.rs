@@ -18,7 +18,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 mod indexed_split;
-mod indexer_message;
 mod indexing_directory;
 mod indexing_statistics;
 mod merge_planner_message;
@@ -29,7 +28,6 @@ mod raw_doc_batch;
 mod scratch_directory;
 
 pub use indexed_split::{IndexedSplit, IndexedSplitBatch};
-pub use indexer_message::IndexerMessage;
 pub use indexing_directory::IndexingDirectory;
 pub use indexing_statistics::IndexingStatistics;
 pub use merge_planner_message::MergePlannerMessage;

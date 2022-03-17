@@ -97,7 +97,7 @@ impl Source for FileSource {
                 checkpoint_delta,
             };
             self.counters.previous_offset = self.counters.current_offset;
-            ctx.send_message(batch_sink, raw_doc_batch.into()).await?;
+            ctx.send_message(batch_sink, raw_doc_batch).await?;
         }
         if reached_eof {
             info!("EOF");
@@ -163,7 +163,7 @@ impl TypedSourceFactory for FileSourceFactory {
 mod tests {
     use std::io::Write;
 
-    use quickwit_actors::{create_test_mailbox, Command, CommandOrMessage, Universe};
+    use quickwit_actors::{create_test_mailbox, Command, Universe};
     use quickwit_metastore::checkpoint::SourceCheckpoint;
 
     use super::*;
@@ -190,15 +190,12 @@ mod tests {
             serde_json::json!({
                 "previous_offset": 70u64,
                 "current_offset": 70u64,
-                "num_lines_processed": 4
+                "num_lines_processed": 4u32
             })
         );
         let batch = inbox.drain_available_message_or_command_for_test();
-        assert!(matches!(
-            batch[1],
-            CommandOrMessage::Command(Command::ExitWithSuccess)
-        ));
         assert_eq!(batch.len(), 2);
+        assert_eq!(batch[1], "ExitWithSuccess");
         Ok(())
     }
 
@@ -237,17 +234,15 @@ mod tests {
             serde_json::json!({
                 "previous_offset": 700_000u64,
                 "current_offset": 700_000u64,
-                "num_lines_processed": 20_000
+                "num_lines_processed": 20_000u64
             })
         );
         let indexer_msgs = inbox.drain_available_message_or_command_for_test();
         assert_eq!(indexer_msgs.len(), 3);
         let mut msgs_it = indexer_msgs.into_iter();
-        let msg1 = msgs_it.next().unwrap();
-        let msg2 = msgs_it.next().unwrap();
-        let msg3 = msgs_it.next().unwrap();
-        let batch1 = extract_batch_from_indexer_message(msg1.message().unwrap()).unwrap();
-        let batch2 = extract_batch_from_indexer_message(msg2.message().unwrap()).unwrap();
+        let batch1 = msgs_it.next().unwrap().downcast::<RawDocBatch>().unwrap();
+        let batch2 = msgs_it.next().unwrap().downcast::<RawDocBatch>().unwrap();
+        let msg3 = msgs_it.next().unwrap().downcast::<Command>().unwrap();
         assert_eq!(
             format!("{:?}", &batch1.checkpoint_delta),
             format!(
@@ -265,7 +260,7 @@ mod tests {
         );
         assert!(matches!(
             &msg3,
-            &CommandOrMessage::Command(Command::ExitWithSuccess)
+            &Command::ExitWithSuccess
         ));
         Ok(())
     }
@@ -275,14 +270,6 @@ mod tests {
         let (_left, right) =
             &checkpoint_delta_str[..checkpoint_delta_str.len() - 2].rsplit_once('(')?;
         Some(right.to_string())
-    }
-
-    fn extract_batch_from_indexer_message(indexer_msg: IndexerMessage) -> Option<RawDocBatch> {
-        if let IndexerMessage::Batch(batch) = indexer_msg {
-            Some(batch)
-        } else {
-            None
-        }
     }
 
     #[tokio::test]
@@ -320,13 +307,12 @@ mod tests {
             serde_json::json!({
                 "previous_offset": 290u64,
                 "current_offset": 290u64,
-                "num_lines_processed": 98
+                "num_lines_processed": 98u64
             })
         );
         let indexer_msgs = inbox.drain_available_message_for_test();
-        assert!(
-            matches!(&indexer_msgs[0], IndexerMessage::Batch(raw_batch) if raw_batch.docs[0].starts_with("2\n"))
-        );
+        let received_batch =  indexer_msgs[0].downcast::<RawDocBatch>().unwrap();
+        assert!(received_batch.docs[0].starts_with("2\n"));
         Ok(())
     }
 }

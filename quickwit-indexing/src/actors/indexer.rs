@@ -34,8 +34,13 @@ use tracing::{info, warn};
 
 use crate::actors::Packager;
 use crate::models::{
-    IndexedSplit, IndexedSplitBatch, IndexerMessage, IndexingDirectory, RawDocBatch,
+    IndexedSplit, IndexedSplitBatch, IndexingDirectory, RawDocBatch,
 };
+
+#[derive(Debug)]
+struct CommitTimeout {
+    split_id: String
+}
 
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
 pub struct IndexerCounters {
@@ -126,7 +131,7 @@ impl IndexerState {
     ) -> anyhow::Result<&'a mut IndexedSplit> {
         if current_split_opt.is_none() {
             let new_indexed_split = self.create_indexed_split(ctx)?;
-            let commit_timeout_message = IndexerMessage::CommitTimeout {
+            let commit_timeout_message = CommitTimeout {
                 split_id: new_indexed_split.split_id.clone(),
             };
             ctx.schedule_self_msg(
@@ -285,23 +290,29 @@ fn record_timestamp(timestamp: i64, time_range: &mut Option<RangeInclusive<i64>>
 }
 
 #[async_trait]
-impl Handler<IndexerMessage> for Indexer {
+impl Handler<CommitTimeout> for Indexer {
     type Reply = ();
 
     async fn handle(
         &mut self,
-        indexer_message: IndexerMessage,
+        commit_timeout: CommitTimeout,
         ctx: &ActorContext<Self>,
     ) -> Result<(), ActorExitStatus> {
-        match indexer_message {
-            IndexerMessage::Batch(batch) => {
-                self.process_batch(batch, ctx).await?;
-            }
-            IndexerMessage::CommitTimeout { split_id } => {
-                self.process_commit_timeout(&split_id, ctx).await?;
-            }
-        }
+        self.process_commit_timeout(&commit_timeout.split_id, ctx).await?;
         Ok(())
+    }
+}
+
+#[async_trait]
+impl Handler<RawDocBatch> for Indexer {
+    type Reply = ();
+
+    async fn handle(
+        &mut self,
+        batch: RawDocBatch,
+        ctx: &ActorContext<Self>,
+    ) -> Result<(), ActorExitStatus> {
+        self.process_batch(batch, ctx).await
     }
 }
 
@@ -460,7 +471,6 @@ mod tests {
                     ],
                     checkpoint_delta: CheckpointDelta::from(0..4),
                 }
-                .into(),
             )
             .await?;
         let indexer_counters = indexer_handle.process_pending_and_observe().await.state;
@@ -482,7 +492,6 @@ mod tests {
                     docs: vec![r#"{"body": "happy3", "timestamp": 1628837062, "response_date": "2021-12-19T16:39:57+00:00", "response_time": 12, "response_payload": "YWJj"}"#.to_string()],
                     checkpoint_delta: CheckpointDelta::from(4..5),
                 }
-                .into(),
             )
             .await?;
         let indexer_counters = indexer_handle.process_pending_and_observe().await.state;
@@ -499,8 +508,9 @@ mod tests {
         );
         let output_messages = inbox.drain_available_message_for_test();
         assert_eq!(output_messages.len(), 1);
-        assert_eq!(output_messages[0].splits[0].num_docs, 3);
-        let sort_by_field = output_messages[0].splits[0]
+        let batch = output_messages.pop().unwrap().downcast::<IndexedSplitBatch>().unwrap();
+        assert_eq!(batch.splits[0].num_docs, 3);
+        let sort_by_field = batch.splits[0]
             .index
             .settings()
             .sort_by_field
@@ -534,7 +544,6 @@ mod tests {
                     docs: vec![r#"{"body": "happy", "timestamp": 1628837062, "response_date": "2021-12-19T16:39:57+00:00", "response_time": 12, "response_payload": "YWJj"}"#.to_string()],
                     checkpoint_delta: CheckpointDelta::from(0..1),
                 }
-                .into(),
             )
             .await?;
         let indexer_counters = indexer_handle.process_pending_and_observe().await.state;
@@ -564,7 +573,8 @@ mod tests {
         );
         let output_messages = inbox.drain_available_message_for_test();
         assert_eq!(output_messages.len(), 1);
-        assert_eq!(output_messages[0].splits[0].num_docs, 1);
+        let indexed_split_batch = output_messages[0].downcast_ref::<IndexedSplitBatch>().unwrap();
+        assert_eq!(indexed_split_batch.splits[0].num_docs, 1);
         Ok(())
     }
 
@@ -591,7 +601,6 @@ mod tests {
                     docs: vec![r#"{"body": "happy", "timestamp": 1628837062, "response_date": "2021-12-19T16:39:57+00:00", "response_time": 12, "response_payload": "YWJj"}"#.to_string()],
                     checkpoint_delta: CheckpointDelta::from(0..1),
                 }
-                .into(),
             )
             .await?;
         universe.send_exit_with_success(&indexer_mailbox).await?;
@@ -610,7 +619,7 @@ mod tests {
         );
         let output_messages = inbox.drain_available_message_for_test();
         assert_eq!(output_messages.len(), 1);
-        assert_eq!(output_messages[0].splits[0].num_docs, 1);
+        assert_eq!(output_messages[0].downcast_ref::<IndexedSplitBatch>().unwrap().splits[0].num_docs, 1);
         Ok(())
     }
 }

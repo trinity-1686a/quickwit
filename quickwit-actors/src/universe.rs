@@ -102,12 +102,10 @@ impl Universe {
 
     /// Inform an actor to process pending message and then stop processing new messages
     /// and exit successfully.
-    pub async fn send_exit_with_success<A: Actor, M>(
+    pub async fn send_exit_with_success<A: Actor>(
         &self,
         mailbox: &Mailbox<A>,
     ) -> Result<(), crate::SendError>
-    where
-        A: Handler<M>,
     {
         mailbox
             .send_with_priority(

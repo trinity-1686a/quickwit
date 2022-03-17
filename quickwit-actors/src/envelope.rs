@@ -17,6 +17,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::any::Any;
 use std::fmt;
 
 use tokio::sync::oneshot;
@@ -25,7 +26,12 @@ use tracing::Instrument;
 use crate::{Actor, ActorContext, ActorExitStatus, Handler};
 
 #[async_trait::async_trait]
-pub(crate) trait Envelope<A: Actor>: Send + Sync {
+pub trait Envelope<A: Actor>: Send + Sync {
+
+    fn debug_msg(&self) -> String;
+
+    fn message(&mut self) -> Box<dyn Any>;
+
     async fn process(
         &mut self,
         msg_id: u64,
@@ -40,6 +46,23 @@ where
     A: Handler<M>,
     M: 'static + Send + Sync + fmt::Debug,
 {
+
+    fn debug_msg(&self) -> String {
+        if let Some((_response_tx, msg)) = self.as_ref().take() {
+            format!("{msg:?}")
+        } else {
+            "<consumed>".to_string()
+        }
+    }
+
+    fn message(&mut self) -> Box<dyn Any> {
+        if let Some((_, message)) = self.take() {
+            Box::new(message)
+        } else {
+            Box::new(())
+        }
+    }
+
     async fn process(
         &mut self,
         msg_id: u64,
