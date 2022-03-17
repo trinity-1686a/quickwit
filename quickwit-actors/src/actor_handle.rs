@@ -23,12 +23,12 @@ use std::fmt;
 use std::sync::Arc;
 
 use tokio::sync::{oneshot, watch};
-use tokio::task::JoinHandle;
 use tokio::time::timeout;
 use tracing::error;
 
 use crate::actor_state::ActorState;
 use crate::channel_with_priority::Priority;
+use crate::join_handle::{JoinHandle, JoinOutcome};
 use crate::mailbox::Command;
 use crate::observation::ObservationType;
 use crate::{Actor, ActorContext, ActorExitStatus, Mailbox, Observation};
@@ -37,7 +37,7 @@ use crate::{Actor, ActorContext, ActorExitStatus, Mailbox, Observation};
 pub struct ActorHandle<A: Actor> {
     actor_context: ActorContext<A>,
     last_state: watch::Receiver<A::ObservableState>,
-    join_handle: JoinHandle<()>,
+    join_handle: JoinHandle,
     pub actor_exit_status: watch::Receiver<Option<ActorExitStatus>>,
 }
 
@@ -101,7 +101,7 @@ impl<A: Actor> Supervisable for ActorHandle<A> {
 impl<A: Actor> ActorHandle<A> {
     pub(crate) fn new(
         last_state: watch::Receiver<A::ObservableState>,
-        join_handle: JoinHandle<()>,
+        join_handle: JoinHandle,
         actor_context: ActorContext<A>,
         actor_exit_status: watch::Receiver<Option<ActorExitStatus>>,
     ) -> Self {
@@ -198,9 +198,9 @@ impl<A: Actor> ActorHandle<A> {
     }
 
     /// Waits until the actor exits by itself. This is the equivalent of `Thread::join`.
-    pub async fn join(self) -> (ActorExitStatus, A::ObservableState) {
-        let exit_status = match self.join_handle.await {
-            Ok(()) => self
+    pub async fn join(mut self) -> (ActorExitStatus, A::ObservableState) {
+        let exit_status = match self.join_handle.join().await {
+            JoinOutcome::Ok => self
                 .actor_exit_status
                 .borrow()
                 .as_ref()
@@ -210,9 +210,10 @@ impl<A: Actor> ActorHandle<A> {
                         "Could not find exit status"
                     )))
                 }),
-            Err(join_err) if join_err.is_panic() => ActorExitStatus::Panicked,
-            Err(_) => ActorExitStatus::Killed,
+            JoinOutcome::Error => ActorExitStatus::Killed,
+            JoinOutcome::Panic => ActorExitStatus::Panicked,
         };
+        // TODO fixme
         let observation = self.last_state.borrow().clone();
         (exit_status, observation)
     }

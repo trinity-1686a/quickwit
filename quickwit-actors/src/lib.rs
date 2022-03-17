@@ -40,6 +40,7 @@ mod runner;
 mod scheduler;
 mod spawn_builder;
 
+mod join_handle;
 #[cfg(test)]
 mod tests;
 mod universe;

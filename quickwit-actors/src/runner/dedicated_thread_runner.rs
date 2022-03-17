@@ -19,11 +19,11 @@
 
 use futures::executor::block_on;
 use tokio::sync::watch::{self, Sender};
-use tokio::task::JoinHandle;
 use tracing::{error, info, Span};
 
 use crate::actor::{process_command, ActorExitStatus};
 use crate::actor_with_state_tx::ActorWithStateTx;
+use crate::join_handle::{JoinHandle, JoinOutcome};
 use crate::mailbox::{CommandOrMessage, Inbox};
 use crate::{Actor, ActorContext, ActorHandle, RecvError};
 
@@ -37,32 +37,17 @@ pub(crate) fn spawn_actor<A: Actor>(
     let (exit_status_tx, exit_status_rx) = watch::channel(None);
     let span_current = Span::current();
     let actor_instance_id = ctx.actor_instance_id().to_string();
-    let join_handle: JoinHandle<()> = spawn_named_blocking(
-        move || {
+    let (join_handle, outcome_tx) = JoinHandle::create_for_thread();
+    std::thread::Builder::new()
+        .name(actor_instance_id.clone())
+        .spawn(move || {
             let _span_guard = span_current.enter();
             let exit_status = sync_actor_loop(actor, inbox, ctx, state_tx);
             let _ = exit_status_tx.send(Some(exit_status));
-        },
-        &actor_instance_id,
-    );
+            let _ = outcome_tx.send(JoinOutcome::Ok);
+        })
+        .expect(&format!("Failed to spawn thread for {actor_instance_id}"));
     ActorHandle::new(state_rx, join_handle, ctx_clone, exit_status_rx)
-}
-
-#[track_caller]
-fn spawn_named_blocking<F, R>(f: F, _name: &str) -> tokio::task::JoinHandle<R>
-where
-    F: FnOnce() -> R + Send + 'static,
-    R: Send + 'static,
-{
-    #[cfg(tokio_unstable)]
-    {
-        return tokio::task::Builder::new().name(_name).spawn_blocking(f);
-    }
-    #[cfg(not(tokio_unstable))]
-    {
-        use tokio::task::spawn_blocking;
-        spawn_blocking(f)
-    }
 }
 
 /// Process a given message.

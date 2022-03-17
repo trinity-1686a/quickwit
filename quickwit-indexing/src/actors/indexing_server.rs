@@ -115,8 +115,14 @@ impl IndexingServerClient {
         &self,
         pipeline_id: &IndexingPipelineId,
     ) -> anyhow::Result<ActorHandle<IndexingPipeline>> {
-        let message = DetachPipeline { pipeline_id: pipeline_id.clone() };
-        let res = self.universe.send_message(&self.mailbox, message).await?.await?;
+        let message = DetachPipeline {
+            pipeline_id: pipeline_id.clone(),
+        };
+        let res = self
+            .universe
+            .send_message(&self.mailbox, message)
+            .await?
+            .await?;
         res
     }
 
@@ -385,17 +391,23 @@ pub struct DetachPipeline {
 impl Handler<DetachPipeline> for IndexingServer {
     type Reply = anyhow::Result<ActorHandle<IndexingPipeline>>;
 
-    async fn handle(&mut self, msg: DetachPipeline, _ctx: &ActorContext<Self>) -> Result<Self::Reply, ActorExitStatus> {
-        Ok(if let Some(pipeline_handle) = self.pipeline_handles.remove(&msg.pipeline_id) {
-            self.state.num_running_pipelines -= 1;
-            Ok(pipeline_handle)
-        }
-        else {
-            Err(anyhow::anyhow!(
-                "Indexing pipeline `{}` for source `{}` does not exist.",
-                msg.pipeline_id.index_id, msg.pipeline_id.source_id
-            ))
-        })
+    async fn handle(
+        &mut self,
+        msg: DetachPipeline,
+        _ctx: &ActorContext<Self>,
+    ) -> Result<Self::Reply, ActorExitStatus> {
+        Ok(
+            if let Some(pipeline_handle) = self.pipeline_handles.remove(&msg.pipeline_id) {
+                self.state.num_running_pipelines -= 1;
+                Ok(pipeline_handle)
+            } else {
+                Err(anyhow::anyhow!(
+                    "Indexing pipeline `{}` for source `{}` does not exist.",
+                    msg.pipeline_id.index_id,
+                    msg.pipeline_id.source_id
+                ))
+            },
+        )
     }
 }
 

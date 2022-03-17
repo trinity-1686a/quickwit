@@ -243,8 +243,7 @@ impl Source for KafkaSource {
                 docs,
                 checkpoint_delta,
             };
-            ctx.send_message(batch_sink, batch)
-                .await?;
+            ctx.send_message(batch_sink, batch).await?;
         }
         if self.state.num_active_partitions == 0 {
             info!(topic = %self.topic, "Reached end of topic.");

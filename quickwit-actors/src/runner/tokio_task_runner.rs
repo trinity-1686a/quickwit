@@ -19,12 +19,12 @@
 
 use anyhow::Context;
 use tokio::sync::watch::{self, Sender};
-use tokio::task::JoinHandle;
 use tracing::{debug, error, info, Instrument};
 
 use crate::actor::{process_command, ActorExitStatus};
 use crate::actor_handle::ActorHandle;
 use crate::actor_with_state_tx::ActorWithStateTx;
+use crate::join_handle::JoinHandle;
 use crate::mailbox::{CommandOrMessage, Inbox};
 use crate::{Actor, ActorContext, RecvError};
 
@@ -45,8 +45,8 @@ pub(crate) fn spawn_actor<A: Actor>(
     }
     .instrument(span);
 
-    let join_handle: JoinHandle<()> = spawn_named(loop_async_actor_future, &actor_instance_id);
-
+    let join_handle: JoinHandle =
+        JoinHandle::create_for_task(spawn_named(loop_async_actor_future, &actor_instance_id));
     ActorHandle::new(state_rx, join_handle, ctx_clone, exit_status_rx)
 }
 
