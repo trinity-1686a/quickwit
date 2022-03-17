@@ -115,13 +115,9 @@ impl IndexingServerClient {
         &self,
         pipeline_id: &IndexingPipelineId,
     ) -> anyhow::Result<ActorHandle<IndexingPipeline>> {
-        let (sender, receiver) = oneshot::channel();
-        let message = IndexingServerMessage::DetachPipeline {
-            pipeline_id: pipeline_id.clone(),
-            sender,
-        };
-        self.universe.send_message(&self.mailbox, message).await?;
-        receiver.await?
+        let message = DetachPipeline { pipeline_id: pipeline_id.clone() };
+        let res = self.universe.send_message(&self.mailbox, message).await?.await?;
+        res
     }
 
     pub async fn observe_server(&self) -> Observation<<IndexingServer as Actor>::ObservableState> {
@@ -199,21 +195,6 @@ impl IndexingServer {
             mailbox,
             handle,
         }
-    }
-
-    async fn detach_pipeline(
-        &mut self,
-        _ctx: &ActorContext<Self>,
-        pipeline_id: &IndexingPipelineId,
-    ) -> anyhow::Result<ActorHandle<IndexingPipeline>> {
-        let pipeline_handle = self.pipeline_handles.remove(pipeline_id).with_context(|| {
-            format!(
-                "Indexing pipeline `{}` for source `{}` does not exist.",
-                pipeline_id.index_id, pipeline_id.source_id
-            )
-        })?;
-        self.state.num_running_pipelines -= 1;
-        Ok(pipeline_handle)
     }
 
     async fn observe_pipeline(
@@ -354,7 +335,7 @@ impl IndexingServer {
                     }
                 },
             );
-        ctx.schedule_self_msg(quickwit_actors::HEARTBEAT, IndexingServerMessage::Supervise)
+        ctx.schedule_self_msg(quickwit_actors::HEARTBEAT, SuperviseLoop)
             .await;
     }
 
@@ -371,10 +352,6 @@ impl IndexingServer {
 
 #[derive(Debug)]
 pub enum IndexingServerMessage {
-    DetachPipeline {
-        pipeline_id: IndexingPipelineId,
-        sender: oneshot::Sender<anyhow::Result<ActorHandle<IndexingPipeline>>>,
-    },
     ObservePipeline {
         pipeline_id: IndexingPipelineId,
         sender: oneshot::Sender<anyhow::Result<Observation<IndexingStatistics>>>,
@@ -394,7 +371,49 @@ pub enum IndexingServerMessage {
         demux_enabled: bool,
         sender: oneshot::Sender<anyhow::Result<IndexingPipelineId>>,
     },
-    Supervise,
+}
+
+/// Detaches a pipeline from the indexing server. The pipeline is no longer managed by the
+/// server. This is mostly useful for ad-hoc indexing pipelines launched with `quickwit index
+/// ingest ..` and testing.
+#[derive(Debug)]
+pub struct DetachPipeline {
+    pipeline_id: IndexingPipelineId,
+}
+
+#[async_trait]
+impl Handler<DetachPipeline> for IndexingServer {
+    type Reply = anyhow::Result<ActorHandle<IndexingPipeline>>;
+
+    async fn handle(&mut self, msg: DetachPipeline, _ctx: &ActorContext<Self>) -> Result<Self::Reply, ActorExitStatus> {
+        Ok(if let Some(pipeline_handle) = self.pipeline_handles.remove(&msg.pipeline_id) {
+            self.state.num_running_pipelines -= 1;
+            Ok(pipeline_handle)
+        }
+        else {
+            Err(anyhow::anyhow!(
+                "Indexing pipeline `{}` for source `{}` does not exist.",
+                msg.pipeline_id.index_id, msg.pipeline_id.source_id
+            ))
+        })
+    }
+}
+
+#[derive(Debug)]
+struct SuperviseLoop;
+
+#[async_trait]
+impl Handler<SuperviseLoop> for IndexingServer {
+    type Reply = ();
+
+    async fn handle(
+        &mut self,
+        _message: SuperviseLoop,
+        ctx: &ActorContext<Self>,
+    ) -> Result<(), ActorExitStatus> {
+        self.supervise_pipelines(ctx).await;
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -420,13 +439,6 @@ impl Handler<IndexingServerMessage> for IndexingServer {
         ctx: &ActorContext<Self>,
     ) -> Result<(), ActorExitStatus> {
         match message {
-            IndexingServerMessage::DetachPipeline {
-                pipeline_id,
-                sender,
-            } => {
-                let detach_res = self.detach_pipeline(ctx, &pipeline_id).await;
-                let _ = sender.send(detach_res);
-            }
             IndexingServerMessage::ObservePipeline {
                 pipeline_id,
                 sender,
@@ -457,7 +469,6 @@ impl Handler<IndexingServerMessage> for IndexingServer {
                     .await;
                 let _ = sender.send(spawn_res);
             }
-            IndexingServerMessage::Supervise => self.supervise_pipelines(ctx).await,
         };
         Ok(())
     }

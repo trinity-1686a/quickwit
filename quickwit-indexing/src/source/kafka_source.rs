@@ -45,7 +45,7 @@ use tracing::{debug, info, warn};
 
 use crate::actors::Indexer;
 use crate::models::RawDocBatch;
-use crate::source::{IndexerMessage, Source, SourceContext, TypedSourceFactory};
+use crate::source::{Source, SourceContext, TypedSourceFactory};
 
 /// We try to emit chewable batches for the indexer.
 /// One batch = one message to the indexer actor.
@@ -243,7 +243,7 @@ impl Source for KafkaSource {
                 docs,
                 checkpoint_delta,
             };
-            ctx.send_message(batch_sink, IndexerMessage::from(batch))
+            ctx.send_message(batch_sink, batch)
                 .await?;
         }
         if self.state.num_active_partitions == 0 {
@@ -776,15 +776,13 @@ mod kafka_broker_tests {
         format!("Message #{}", id)
     }
 
-    fn merge_messages(messages: Vec<IndexerMessage>) -> anyhow::Result<RawDocBatch> {
+    fn merge_messages(batches: Vec<RawDocBatch>) -> anyhow::Result<RawDocBatch> {
         let mut merged_batch = RawDocBatch::default();
-        for message in messages {
-            if let IndexerMessage::Batch(batch) = message {
-                merged_batch.docs.extend(batch.docs);
-                merged_batch
-                    .checkpoint_delta
-                    .extend(batch.checkpoint_delta)?;
-            }
+        for batch in batches {
+            merged_batch.docs.extend(batch.docs);
+            merged_batch
+                .checkpoint_delta
+                .extend(batch.checkpoint_delta)?;
         }
         merged_batch.docs.sort();
         Ok(merged_batch)
