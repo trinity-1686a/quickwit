@@ -34,13 +34,9 @@ use serde::Serialize;
 use tokio::sync::oneshot;
 use tracing::{error, info};
 
+use crate::models::{DetachPipeline, IndexingPipelineId};
 use crate::{IndexingPipeline, IndexingPipelineParams, IndexingStatistics};
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct IndexingPipelineId {
-    index_id: String,
-    source_id: String,
-}
 
 pub struct IndexingServerClient {
     universe: Universe,
@@ -320,31 +316,6 @@ impl IndexingServer {
             .await?;
         Ok(pipeline_id)
     }
-
-    async fn supervise_pipelines(&mut self, ctx: &ActorContext<Self>) {
-        self.pipeline_handles
-            .retain(|pipeline_id, pipeline_handle| match pipeline_handle
-                    .health()
-                {
-                    Health::Healthy => true,
-                    Health::Success => {
-                        info!(index_id = %pipeline_id.index_id, source_id = %pipeline_id.source_id, "Indexing pipeline completed.");
-                        self.state.num_successful_pipelines += 1;
-                        self.state.num_running_pipelines -= 1;
-                        false
-                    }
-                    Health::FailureOrUnhealthy => {
-                        error!(index_id = %pipeline_id.index_id, source_id = %pipeline_id.source_id, "Indexing pipeline failed.");
-                        self.state.num_failed_pipelines += 1;
-                        self.state.num_running_pipelines -= 1;
-                        false
-                    }
-                },
-            );
-        ctx.schedule_self_msg(quickwit_actors::HEARTBEAT, SuperviseLoop)
-            .await;
-    }
-
     async fn index_metadata(
         &self,
         ctx: &ActorContext<Self>,
@@ -377,14 +348,6 @@ pub enum IndexingServerMessage {
         demux_enabled: bool,
         sender: oneshot::Sender<anyhow::Result<IndexingPipelineId>>,
     },
-}
-
-/// Detaches a pipeline from the indexing server. The pipeline is no longer managed by the
-/// server. This is mostly useful for ad-hoc indexing pipelines launched with `quickwit index
-/// ingest ..` and testing.
-#[derive(Debug)]
-pub struct DetachPipeline {
-    pipeline_id: IndexingPipelineId,
 }
 
 #[async_trait]
@@ -423,7 +386,27 @@ impl Handler<SuperviseLoop> for IndexingServer {
         _message: SuperviseLoop,
         ctx: &ActorContext<Self>,
     ) -> Result<(), ActorExitStatus> {
-        self.supervise_pipelines(ctx).await;
+        self.pipeline_handles
+            .retain(|pipeline_id, pipeline_handle| match pipeline_handle
+                    .health()
+                {
+                    Health::Healthy => true,
+                    Health::Success => {
+                        info!(index_id = %pipeline_id.index_id, source_id = %pipeline_id.source_id, "Indexing pipeline completed.");
+                        self.state.num_successful_pipelines += 1;
+                        self.state.num_running_pipelines -= 1;
+                        false
+                    }
+                    Health::FailureOrUnhealthy => {
+                        error!(index_id = %pipeline_id.index_id, source_id = %pipeline_id.source_id, "Indexing pipeline failed.");
+                        self.state.num_failed_pipelines += 1;
+                        self.state.num_running_pipelines -= 1;
+                        false
+                    }
+                },
+            );
+        ctx.schedule_self_msg(quickwit_actors::HEARTBEAT, SuperviseLoop)
+           .await;
         Ok(())
     }
 }
@@ -437,8 +420,7 @@ impl Actor for IndexingServer {
     }
 
     async fn initialize(&mut self, ctx: &ActorContext<Self>) -> Result<(), ActorExitStatus> {
-        self.supervise_pipelines(ctx).await;
-        Ok(())
+        self.handle(SuperviseLoop, ctx).await
     }
 }
 

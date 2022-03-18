@@ -26,6 +26,7 @@ mod packaged_split;
 mod publisher_message;
 mod raw_doc_batch;
 mod scratch_directory;
+mod indexing_server_message;
 
 pub use indexed_split::{IndexedSplit, IndexedSplitBatch};
 pub use indexing_directory::IndexingDirectory;
@@ -36,3 +37,4 @@ pub use packaged_split::{PackagedSplit, PackagedSplitBatch};
 pub use publisher_message::{PublishOperation, PublisherMessage};
 pub use raw_doc_batch::RawDocBatch;
 pub use scratch_directory::ScratchDirectory;
+pub use indexing_server_message::{IndexingPipelineId, DetachPipeline};

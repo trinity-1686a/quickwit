@@ -370,7 +370,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_panic_in_actor_tokio_task() -> anyhow::Result<()> {
-        test_panic_in_actor_aux(ActorRunner::TokioTask).await?;
+        test_panic_in_actor_aux(ActorRunner::GlobalRuntime).await?;
         Ok(())
     }
 
@@ -394,6 +394,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_exit_tokio_task() -> anyhow::Result<()> {
-        test_exit_aux(ActorRunner::TokioTask).await
+        test_exit_aux(ActorRunner::GlobalRuntime).await
     }
 }

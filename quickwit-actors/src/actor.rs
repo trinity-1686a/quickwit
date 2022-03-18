@@ -32,7 +32,7 @@ use tracing::{debug, error, info_span, Span};
 
 use crate::actor_state::{ActorState, AtomicState};
 use crate::channel_with_priority::Priority;
-use crate::envelope::wrap_in_async_envelope;
+use crate::envelope::wrap_in_envelope;
 use crate::mailbox::{Command, CommandOrMessage};
 use crate::progress::{Progress, ProtectedZoneGuard};
 use crate::scheduler::{Callback, Scheduler, SchedulerMessage};
@@ -135,7 +135,7 @@ pub trait Actor: Send + Sync + Sized + 'static {
     }
 
     fn runner(&self) -> ActorRunner {
-        ActorRunner::TokioTask
+        ActorRunner::GlobalRuntime
     }
 
     /// The Actor's incoming mailbox queue capacity. It is set when the actor is spawned.
@@ -389,7 +389,7 @@ impl<A: Actor> ActorContext<A> {
         M: 'static + Send + Sync + fmt::Debug,
     {
         let self_mailbox = self.inner.self_mailbox.clone();
-        let (envelope, _response_rx) = wrap_in_async_envelope(msg);
+        let (envelope, _response_rx) = wrap_in_envelope(msg);
         let callback = Callback(Box::pin(async move {
             let _ = self_mailbox
                 .send_with_priority(CommandOrMessage::Message(envelope), Priority::High)

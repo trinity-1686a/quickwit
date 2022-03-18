@@ -17,53 +17,110 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::future::Future;
+
 use anyhow::Context;
-use tokio::sync::watch::{self, Sender};
-use tracing::{debug, error, info, Instrument};
+use tokio::sync::watch;
+use tracing::{debug, Instrument, info, error};
 
-use crate::actor::{process_command, ActorExitStatus};
-use crate::actor_handle::ActorHandle;
+use crate::actor::process_command;
 use crate::actor_with_state_tx::ActorWithStateTx;
-use crate::join_handle::JoinHandle;
-use crate::mailbox::{CommandOrMessage, Inbox};
-use crate::{Actor, ActorContext, RecvError};
+use crate::join_handle::{JoinHandle, JoinOutcome};
+use crate::mailbox::{Inbox, CommandOrMessage};
+use crate::{Actor, ActorContext, ActorHandle, ActorExitStatus, RecvError};
 
-pub(crate) fn spawn_actor<A: Actor>(
-    actor: A,
-    ctx: ActorContext<A>,
-    inbox: Inbox<A>,
-) -> ActorHandle<A> {
-    debug!(actor_id = %ctx.actor_instance_id(), "spawn-async");
-    let (state_tx, state_rx) = watch::channel(actor.observable_state());
-    let ctx_clone = ctx.clone();
-    let span = actor.span(&ctx_clone);
-    let (exit_status_tx, exit_status_rx) = watch::channel(None);
-    let actor_instance_id = ctx.actor_instance_id().to_string();
-    let loop_async_actor_future = async move {
-        let exit_status = async_actor_loop(actor, inbox, ctx, state_tx).await;
-        let _ = exit_status_tx.send(Some(exit_status));
-    }
-    .instrument(span);
 
-    let join_handle: JoinHandle =
-        JoinHandle::create_for_task(spawn_named(loop_async_actor_future, &actor_instance_id));
-    ActorHandle::new(state_rx, join_handle, ctx_clone, exit_status_rx)
+/// The `ActorRunner` defines the environment in which an actor
+/// should be executed.
+///
+/// While all actor's handlers have a asynchronous trait,
+/// some actor can be implemented to do some heavy blocking work
+/// and no rely on any asynchronous contructs.
+///
+/// In that case, they should simply rely on the `DedicatedThread` runner.
+#[derive(Clone, Copy, Debug)]
+pub enum ActorRunner {
+    /// Returns the actor as a tokio task running on the global runtime.
+    ///
+    /// This is the most lightweight solution.
+    /// Actor running on this runtime should not block for more than 50 microsecs.
+    GlobalRuntime,
+    /// Spawns a dedicated thread, a Tokio runtime, and rely on
+    /// `tokio::Runtime::block_on` to run the actor loop.
+    ///
+    /// This runner is suitable for actors that are heavily blocking.
+    DedicatedThread,
 }
 
-#[track_caller]
-fn spawn_named<T>(
-    task: impl std::future::Future<Output = T> + Send + 'static,
-    _name: &str,
-) -> tokio::task::JoinHandle<T>
-where
-    T: Send + 'static,
-{
-    #[cfg(tokio_unstable)]
-    {
-        return tokio::task::Builder::new().name(_name).spawn(task);
+impl ActorRunner {
+    pub fn spawn_actor<A: Actor>(
+        &self,
+        actor: A,
+        ctx: ActorContext<A>,
+        inbox: Inbox<A>,
+    ) -> ActorHandle<A> {
+        debug!(actor_id = %ctx.actor_instance_id(), "spawn-async");
+        let (state_tx, state_rx) = watch::channel(actor.observable_state());
+        let ctx_clone = ctx.clone();
+        let span = actor.span(&ctx_clone);
+        let (exit_status_tx, exit_status_rx) = watch::channel(None);
+        let actor_instance_id = ctx.actor_instance_id().to_string();
+        let loop_async_actor_future = async move {
+            let exit_status = async_actor_loop(actor, inbox, ctx, state_tx).await;
+            let _ = exit_status_tx.send(Some(exit_status));
+        }
+        .instrument(span);
+        let join_handle = self.spawn_named_task(loop_async_actor_future, &actor_instance_id);
+        ActorHandle::new(state_rx, join_handle, ctx_clone, exit_status_rx)
     }
-    #[cfg(not(tokio_unstable))]
-    tokio::spawn(task)
+
+    fn spawn_named_task(
+        &self,
+        task: impl Future<Output=()> + Send + 'static,
+        name: &str,
+    ) -> JoinHandle {
+        match *self {
+            ActorRunner::GlobalRuntime => {
+                tokio_task_runtime_spawn_named(task, name)
+            },
+            ActorRunner::DedicatedThread => {
+                dedicated_runtime_spawn_named(task, name)
+            }
+        }
+    }
+}
+
+fn dedicated_runtime_spawn_named(
+    task: impl Future<Output=()> + Send + 'static,
+    name: &str,
+) -> JoinHandle {
+    let (join_handle, sender) = JoinHandle::create_for_thread();
+    std::thread::Builder::new()
+        .name(name.to_string())
+        .spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+                .unwrap();
+            rt.block_on(task);
+            let _ = sender.send(JoinOutcome::Ok);
+        })
+        .unwrap();
+    join_handle
+}
+
+#[allow(unused_variables)]
+fn tokio_task_runtime_spawn_named(
+    task: impl Future<Output=()> + Send + 'static,
+    name: &str,
+) -> JoinHandle {
+    let tokio_task_join_handle = {
+        #[cfg(tokio_unstable)]
+        { tokio::task::Builder::new().name(_name).spawn(task) }
+        #[cfg(not(tokio_unstable))]
+        { tokio::spawn(task) }
+    };
+    JoinHandle::create_for_task(tokio_task_join_handle)
 }
 
 async fn process_msg<A: Actor>(
@@ -71,7 +128,7 @@ async fn process_msg<A: Actor>(
     msg_id: u64,
     inbox: &mut Inbox<A>,
     ctx: &mut ActorContext<A>,
-    state_tx: &Sender<A::ObservableState>,
+    state_tx: &watch::Sender<A::ObservableState>,
 ) -> Option<ActorExitStatus> {
     if ctx.kill_switch().is_dead() {
         return Some(ActorExitStatus::Killed);
@@ -117,7 +174,7 @@ async fn async_actor_loop<A: Actor>(
     actor: A,
     mut inbox: Inbox<A>,
     mut ctx: ActorContext<A>,
-    state_tx: Sender<A::ObservableState>,
+    state_tx: watch::Sender<A::ObservableState>,
 ) -> ActorExitStatus {
     // We rely on this object internally to fetch a post-mortem state,
     // even in case of a panic.

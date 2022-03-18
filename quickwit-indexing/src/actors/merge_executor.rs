@@ -219,7 +219,7 @@ fn merge_all_segments(index: &Index) -> anyhow::Result<()> {
     debug!(segment_ids=?segment_ids,"merging-segments");
     let mut index_writer = index.writer_with_num_threads(1, 10_000_000)?;
     // TODO it would be nice if tantivy could let us run the merge in the current thread.
-    futures::executor::block_on(index_writer.merge(&segment_ids))?;
+    index_writer.merge(&segment_ids).wait()?;
     Ok(())
 }
 

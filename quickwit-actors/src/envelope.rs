@@ -25,12 +25,22 @@ use tracing::Instrument;
 
 use crate::{Actor, ActorContext, ActorExitStatus, Handler};
 
+/// An `Envelope` is just a way to capture the handler
+/// of a message and hide its type.
 #[async_trait::async_trait]
 pub trait Envelope<A: Actor>: Send + Sync {
     fn debug_msg(&self) -> String;
 
+    /// Returns the message as a boxed any.
+    ///
+    /// This method is only useful in unit tests.
     fn message(&mut self) -> Box<dyn Any>;
 
+    /// Process function.
+    ///
+    /// Depending on the runner of the actor, it can be
+    /// fine to treat it is as a sync function.
+    /// See `ActorRunner for more information.
     async fn process(
         &mut self,
         msg_id: u64,
@@ -79,7 +89,7 @@ where
     }
 }
 
-pub(crate) fn wrap_in_async_envelope<A, M>(
+pub(crate) fn wrap_in_envelope<A, M>(
     msg: M,
 ) -> (Box<dyn Envelope<A>>, oneshot::Receiver<A::Reply>)
 where
@@ -88,6 +98,5 @@ where
 {
     let (response_tx, response_rx) = oneshot::channel();
     let envelope = Some((response_tx, msg));
-
     (Box::new(envelope) as Box<dyn Envelope<A>>, response_rx)
 }

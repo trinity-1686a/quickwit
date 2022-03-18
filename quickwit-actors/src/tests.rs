@@ -461,7 +461,7 @@ async fn test_looping_aux(runner: ActorRunner) -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_looping_tokio_task() -> anyhow::Result<()> {
-    test_looping_aux(ActorRunner::TokioTask).await
+    test_looping_aux(ActorRunner::GlobalRuntime).await
 }
 
 #[tokio::test]
@@ -606,7 +606,7 @@ async fn test_actor_finalize_error_set_exit_status_to_panicked_aux(
 
 #[tokio::test]
 async fn test_actor_finalize_error_set_exit_status_to_panicked_tokio_task() -> anyhow::Result<()> {
-    test_actor_finalize_error_set_exit_status_to_panicked_aux(ActorRunner::TokioTask).await
+    test_actor_finalize_error_set_exit_status_to_panicked_aux(ActorRunner::GlobalRuntime).await
 }
 
 #[tokio::test]

@@ -79,13 +79,13 @@ impl Packager {
         }
     }
 
-    pub fn process_indexed_split(
+    pub async fn process_indexed_split(
         &self,
         mut split: IndexedSplit,
         ctx: &ActorContext<Self>,
     ) -> anyhow::Result<PackagedSplit> {
         commit_split(&mut split, ctx)?;
-        let segment_metas = merge_segments_if_required(&mut split, ctx)?;
+        let segment_metas = merge_segments_if_required(&mut split, ctx).await?;
         let packaged_split =
             create_packaged_split(&segment_metas[..], split, &self.tag_fields, ctx)?;
         Ok(packaged_split)
@@ -137,11 +137,11 @@ impl Handler<IndexedSplitBatch> for Packager {
             }
         }
         fail_point!("packager:before");
-        let packaged_splits = batch
-            .splits
-            .into_iter()
-            .map(|split| self.process_indexed_split(split, ctx))
-            .try_collect()?;
+        let mut packaged_splits = Vec::new();
+        for split in batch.splits {
+            let packaged_split = self.process_indexed_split(split, ctx).await?;
+            packaged_splits.push(packaged_split);
+        }
         ctx.send_message(
             &self.uploader_mailbox,
             PackagedSplitBatch::new(packaged_splits),
@@ -208,7 +208,7 @@ fn list_split_files(
 ///
 /// Note this function implicitly drops the IndexWriter
 /// which potentially olds a lot of RAM.
-fn merge_segments_if_required(
+async fn merge_segments_if_required(
     split: &mut IndexedSplit,
     ctx: &ActorContext<Packager>,
 ) -> anyhow::Result<Vec<SegmentMeta>> {
@@ -226,7 +226,7 @@ fn merge_segments_if_required(
         info!(split_id=split.split_id.as_str(), segment_ids=?segment_ids, "merging-segments");
         // TODO it would be nice if tantivy could let us run the merge in the current thread.
         let _protected_zone_guard = ctx.protect_zone();
-        futures::executor::block_on(split.index_writer.merge(&segment_ids))?;
+        split.index_writer.merge(&segment_ids).await?;
     }
     let segment_metas_after_merge: Vec<SegmentMeta> = split.index.searchable_segment_metas()?;
     Ok(segment_metas_after_merge)

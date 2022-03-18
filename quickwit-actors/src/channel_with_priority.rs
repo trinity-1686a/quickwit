@@ -19,7 +19,7 @@
 
 use std::time::Duration;
 
-use flume::{RecvTimeoutError, TryRecvError};
+use flume::TryRecvError;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -115,16 +115,6 @@ impl<T> Sender<T> {
         self.channel(priority).send_async(msg).await?;
         Ok(())
     }
-
-    // pub fn send_blocking(&self, msg: T, priority: Priority) -> Result<(), SendError> {
-    //     self.channel(priority).send(msg)?;
-    //     Ok(())
-    // }
-
-    // pub fn try_send(&self, msg: T, priority: Priority) -> Result<(), SendError> {
-    //     self.channel(priority).try_send(msg)?;
-    //     Ok(())
-    // }
 }
 
 pub struct Receiver<T> {
@@ -158,14 +148,6 @@ impl<T> Receiver<T> {
                 Err(RecvError::Timeout)
             }
         }
-    }
-
-    pub fn recv_high_priority_timeout_blocking(
-        &mut self,
-        duration: Duration,
-    ) -> Result<T, RecvError> {
-        let msg = self.high_priority_rx.recv_timeout(duration)?;
-        Ok(msg)
     }
 
     pub async fn recv_timeout(&mut self, duration: Duration) -> Result<T, RecvError> {
@@ -207,39 +189,6 @@ impl<T> Receiver<T> {
            }
             _ = tokio::time::sleep(duration) => {
                 Err(RecvError::Timeout)
-            }
-        }
-    }
-
-    pub fn recv_timeout_blocking(&mut self, duration: Duration) -> Result<T, RecvError> {
-        if let Some(msg) = self.try_recv_high_priority_message() {
-            return Ok(msg);
-        }
-        if let Some(pending_msg) = self.pending.take() {
-            return Ok(pending_msg);
-        }
-        match self.low_priority_rx.recv_timeout(duration) {
-            Ok(low_priority_msg) => {
-                if let Some(high_priority_msg) = self.try_recv_high_priority_message() {
-                    self.pending = Some(low_priority_msg);
-                    Ok(high_priority_msg)
-                } else {
-                    Ok(low_priority_msg)
-                }
-            }
-            Err(RecvTimeoutError::Timeout) => {
-                if let Some(high_priority_msg) = self.try_recv_high_priority_message() {
-                    Ok(high_priority_msg)
-                } else {
-                    Err(RecvError::Timeout)
-                }
-            }
-            Err(RecvTimeoutError::Disconnected) => {
-                if let Some(high_priority_msg) = self.try_recv_high_priority_message() {
-                    Ok(high_priority_msg)
-                } else {
-                    Err(RecvError::Disconnected)
-                }
             }
         }
     }

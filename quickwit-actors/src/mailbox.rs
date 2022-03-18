@@ -25,7 +25,7 @@ use std::sync::Arc;
 use tokio::sync::oneshot;
 
 use crate::channel_with_priority::{Priority, Receiver, Sender};
-use crate::envelope::{wrap_in_async_envelope, Envelope};
+use crate::envelope::{wrap_in_envelope, Envelope};
 use crate::{Actor, Handler, QueueCapacity, RecvError, SendError};
 
 /// A mailbox is the object that makes it possible to send a message
@@ -201,7 +201,7 @@ impl<A: Actor> Mailbox<A> {
         A: Handler<M>,
         M: 'static + Send + Sync + fmt::Debug,
     {
-        let (msg, response_rx) = wrap_in_async_envelope(msg);
+        let (msg, response_rx) = wrap_in_envelope(msg);
         self.send_with_priority(CommandOrMessage::Message(msg), Priority::Low)
             .await?;
         Ok(response_rx)
@@ -211,13 +211,6 @@ impl<A: Actor> Mailbox<A> {
         self.send_with_priority(command.into(), Priority::High)
             .await
     }
-
-    // pub fn try_send_message<M>(&self, message: M)  -> Result<(), SendError>
-    // where A: AsyncHandler<M> {
-    //     self.inner
-    //         .tx
-    //         .try_send(CommandOrMessage::Message(message), Priority::Low)
-    // }
 }
 
 pub struct Inbox<A: Actor> {
@@ -235,17 +228,6 @@ impl<A: Actor> Inbox<A> {
         self.rx
             .recv_high_priority_timeout(crate::message_timeout())
             .await
-    }
-
-    pub(crate) fn recv_timeout_blocking(&mut self) -> Result<CommandOrMessage<A>, RecvError> {
-        self.rx.recv_timeout_blocking(crate::message_timeout())
-    }
-
-    pub(crate) fn recv_timeout_cmd_and_scheduled_msg_only_blocking(
-        &mut self,
-    ) -> Result<CommandOrMessage<A>, RecvError> {
-        self.rx
-            .recv_high_priority_timeout_blocking(crate::message_timeout())
     }
 
     /// Destroys the inbox and returns the list of pending messages or commands

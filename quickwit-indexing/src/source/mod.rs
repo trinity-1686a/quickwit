@@ -66,7 +66,6 @@ mod source_factory;
 mod vec_source;
 mod void_source;
 
-use std::fmt;
 use std::path::Path;
 
 use anyhow::bail;
@@ -147,8 +146,7 @@ pub trait Source: Send + Sync + 'static {
     fn observable_state(&self) -> serde_json::Value;
 }
 
-/// The SourceActor acts as a thin wrapper over a source trait object to execute
-/// it as an `AsyncActor`.
+/// The SourceActor acts as a thin wrapper over a source trait object to execute.
 ///
 /// It mostly takes care of running a loop calling `emit_batches(...)`.
 pub struct SourceActor {
@@ -156,17 +154,8 @@ pub struct SourceActor {
     pub batch_sink: Mailbox<Indexer>,
 }
 
-/// The goal of this struct is simply to prevent the construction of a Loop object.
-struct PrivateToken;
-
-/// Message used for the SourceActor.
-pub struct Loop(PrivateToken);
-
-impl fmt::Debug for Loop {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("Loop").finish()
-    }
-}
+#[derive(Debug)]
+struct Loop;
 
 #[async_trait]
 impl Actor for SourceActor {
@@ -182,7 +171,7 @@ impl Actor for SourceActor {
 
     async fn initialize(&mut self, ctx: &SourceContext) -> Result<(), ActorExitStatus> {
         self.source.initialize(ctx).await?;
-        self.handle(Loop(PrivateToken), ctx).await?;
+        self.handle(Loop, ctx).await?;
         Ok(())
     }
 
@@ -202,7 +191,7 @@ impl Handler<Loop> for SourceActor {
 
     async fn handle(&mut self, _message: Loop, ctx: &SourceContext) -> Result<(), ActorExitStatus> {
         self.source.emit_batches(&self.batch_sink, ctx).await?;
-        ctx.send_self_message(Loop(PrivateToken)).await?;
+        ctx.send_self_message(Loop).await?;
         Ok(())
     }
 }
