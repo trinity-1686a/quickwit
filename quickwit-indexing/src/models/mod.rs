@@ -19,6 +19,7 @@
 
 mod indexed_split;
 mod indexing_directory;
+mod indexing_server_message;
 mod indexing_statistics;
 mod merge_planner_message;
 mod merge_scratch;
@@ -26,15 +27,17 @@ mod packaged_split;
 mod publisher_message;
 mod raw_doc_batch;
 mod scratch_directory;
-mod indexing_server_message;
 
 pub use indexed_split::{IndexedSplit, IndexedSplitBatch};
 pub use indexing_directory::IndexingDirectory;
+pub use indexing_server_message::{
+    DetachPipeline, IndexingPipelineId, ObservePipeline, SpawnMergePipeline, SpawnPipeline,
+    SpawnPipelines,
+};
 pub use indexing_statistics::IndexingStatistics;
-pub use merge_planner_message::MergePlannerMessage;
+pub use merge_planner_message::NewSplits;
 pub use merge_scratch::MergeScratch;
 pub use packaged_split::{PackagedSplit, PackagedSplitBatch};
 pub use publisher_message::{PublishOperation, PublisherMessage};
 pub use raw_doc_batch::RawDocBatch;
 pub use scratch_directory::ScratchDirectory;
-pub use indexing_server_message::{IndexingPipelineId, DetachPipeline};

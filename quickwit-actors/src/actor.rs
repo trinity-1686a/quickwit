@@ -35,7 +35,7 @@ use crate::channel_with_priority::Priority;
 use crate::envelope::wrap_in_envelope;
 use crate::mailbox::{Command, CommandOrMessage};
 use crate::progress::{Progress, ProtectedZoneGuard};
-use crate::scheduler::{Callback, Scheduler, SchedulerMessage};
+use crate::scheduler::{Callback, ScheduleEvent, Scheduler};
 use crate::spawn_builder::SpawnBuilder;
 use crate::{ActorRunner, KillSwitch, Mailbox, QueueCapacity, SendError};
 
@@ -395,7 +395,7 @@ impl<A: Actor> ActorContext<A> {
                 .send_with_priority(CommandOrMessage::Message(envelope), Priority::High)
                 .await;
         }));
-        let scheduler_msg = SchedulerMessage::ScheduleEvent {
+        let scheduler_msg = ScheduleEvent {
             timeout: after_duration,
             callback,
         };

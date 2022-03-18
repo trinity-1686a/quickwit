@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use futures::Future;
-use tokio::sync::oneshot::Sender;
+use tokio::sync::oneshot::{self, Sender};
 use tokio::task::JoinHandle;
 use tracing::info;
 
@@ -70,33 +70,25 @@ pub enum TimeShift {
     ByDuration(Duration),
 }
 
-pub(crate) enum SchedulerMessage {
-    ScheduleEvent {
-        timeout: Duration,
-        callback: Callback,
-    },
-    Timeout,
-    SimulateAdvanceTime {
-        time_shift: TimeShift,
-        tx: tokio::sync::oneshot::Sender<()>,
-    },
+pub struct ScheduleEvent {
+    pub(crate) timeout: Duration,
+    pub(crate) callback: Callback,
 }
 
-impl fmt::Debug for SchedulerMessage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SchedulerMessage::ScheduleEvent {
-                timeout,
-                callback: _,
-            } => f
-                .debug_struct("ScheduleEvent")
-                .field("timeout", timeout)
-                .finish(),
-            SchedulerMessage::Timeout => f.write_str("Timeout"),
-            SchedulerMessage::SimulateAdvanceTime { .. } => {
-                f.debug_struct("SimulateAdvanceTime").finish()
-            }
-        }
+#[derive(Debug)]
+struct Timeout;
+
+#[derive(Debug)]
+pub struct SimulateAdvanceTime {
+    pub time_shift: TimeShift,
+    pub tx: oneshot::Sender<()>,
+}
+
+impl fmt::Debug for ScheduleEvent {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("ScheduleEvent")
+            .field("timeout", &self.timeout)
+            .finish()
     }
 }
 
@@ -130,24 +122,45 @@ impl Actor for Scheduler {
 }
 
 #[async_trait]
-impl Handler<SchedulerMessage> for Scheduler {
+impl Handler<SimulateAdvanceTime> for Scheduler {
     type Reply = ();
 
     async fn handle(
         &mut self,
-        message: SchedulerMessage,
+        message: SimulateAdvanceTime,
         ctx: &ActorContext<Self>,
     ) -> Result<(), ActorExitStatus> {
-        match message {
-            SchedulerMessage::ScheduleEvent { timeout, callback } => {
-                self.process_schedule_event(timeout, callback, ctx).await;
-            }
-            SchedulerMessage::Timeout => self.process_timeout(ctx).await,
-            SchedulerMessage::SimulateAdvanceTime { time_shift, tx } => {
-                self.process_simulate_advance_time(time_shift, tx, ctx)
-                    .await
-            }
-        }
+        self.process_simulate_advance_time(message.time_shift, message.tx, ctx)
+            .await;
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl Handler<ScheduleEvent> for Scheduler {
+    type Reply = ();
+
+    async fn handle(
+        &mut self,
+        message: ScheduleEvent,
+        ctx: &ActorContext<Self>,
+    ) -> Result<(), ActorExitStatus> {
+        self.process_schedule_event(message.timeout, message.callback, ctx)
+            .await;
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl Handler<Timeout> for Scheduler {
+    type Reply = ();
+
+    async fn handle(
+        &mut self,
+        _message: Timeout,
+        ctx: &ActorContext<Self>,
+    ) -> Result<(), ActorExitStatus> {
+        self.process_timeout(ctx).await;
         Ok(())
     }
 }
@@ -203,7 +216,7 @@ impl Scheduler {
             // A good way could be to wait for the overall actors in the universe to be idle.
             tokio::time::sleep(Duration::from_millis(100)).await;
             let _ = ctx
-                .send_self_message(SchedulerMessage::SimulateAdvanceTime {
+                .send_self_message(SimulateAdvanceTime {
                     time_shift: TimeShift::ToInstant(deadline),
                     tx,
                 })
@@ -269,7 +282,7 @@ impl Scheduler {
                 tokio::time::sleep(timeout).await;
             }
             // We ignore the send error here. The scheduler was just terminated
-            let _ = self_mailbox.send_message(SchedulerMessage::Timeout).await;
+            let _ = self_mailbox.send_message(Timeout).await;
         });
         self.next_timeout = Some(new_join_handle);
     }
@@ -283,8 +296,8 @@ mod tests {
 
     use tokio::sync::oneshot;
 
-    use super::{Callback, Scheduler, SchedulerMessage};
-    use crate::scheduler::{SchedulerCounters, TimeShift};
+    use super::{Callback, Scheduler};
+    use crate::scheduler::{ScheduleEvent, SchedulerCounters, SimulateAdvanceTime, TimeShift};
     use crate::Universe;
 
     fn create_test_callback() -> (Arc<AtomicBool>, Callback) {
@@ -308,7 +321,7 @@ mod tests {
         universe
             .send_message(
                 &scheduler_mailbox,
-                SchedulerMessage::ScheduleEvent {
+                ScheduleEvent {
                     timeout: Duration::from_secs(30),
                     callback,
                 },
@@ -321,7 +334,7 @@ mod tests {
         universe
             .send_message(
                 &scheduler_mailbox,
-                SchedulerMessage::SimulateAdvanceTime {
+                SimulateAdvanceTime {
                     time_shift: TimeShift::ByDuration(Duration::from_secs(31)),
                     tx,
                 },
@@ -352,7 +365,7 @@ mod tests {
         universe
             .send_message(
                 &scheduler_mailbox,
-                SchedulerMessage::ScheduleEvent {
+                ScheduleEvent {
                     timeout: Duration::from_secs(20),
                     callback: callback2,
                 },
@@ -362,7 +375,7 @@ mod tests {
         universe
             .send_message(
                 &scheduler_mailbox,
-                SchedulerMessage::ScheduleEvent {
+                ScheduleEvent {
                     timeout: Duration::from_millis(2),
                     callback: callback1,
                 },
@@ -394,7 +407,7 @@ mod tests {
         universe
             .send_message(
                 &scheduler_mailbox,
-                SchedulerMessage::SimulateAdvanceTime {
+                SimulateAdvanceTime {
                     time_shift: TimeShift::ByDuration(Duration::from_secs(10)),
                     tx,
                 },
@@ -407,7 +420,7 @@ mod tests {
         universe
             .send_message(
                 &scheduler_mailbox,
-                SchedulerMessage::SimulateAdvanceTime {
+                SimulateAdvanceTime {
                     time_shift: TimeShift::ByDuration(Duration::from_secs(10)),
                     tx,
                 },

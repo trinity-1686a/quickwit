@@ -27,7 +27,7 @@ use quickwit_metastore::SplitMetadata;
 use tracing::info;
 
 use crate::actors::MergeSplitDownloader;
-use crate::models::MergePlannerMessage;
+use crate::models::NewSplits;
 use crate::MergePolicy;
 
 /// The merge planner decides when to start a merge or a demux task.
@@ -64,12 +64,12 @@ impl Actor for MergePlanner {
 }
 
 #[async_trait]
-impl Handler<MergePlannerMessage> for MergePlanner {
+impl Handler<NewSplits> for MergePlanner {
     type Reply = ();
 
     async fn handle(
         &mut self,
-        message: MergePlannerMessage,
+        message: NewSplits,
         ctx: &ActorContext<Self>,
     ) -> Result<(), ActorExitStatus> {
         let mut has_new_young_split = false;
@@ -257,7 +257,7 @@ mod tests {
             universe
                 .send_message(
                     &merge_planner_mailbox,
-                    MergePlannerMessage {
+                    NewSplits {
                         new_splits: vec![split],
                     },
                 )
@@ -277,10 +277,7 @@ mod tests {
                 for merge_op in merge_ops {
                     let splits = apply_merge(&mut split_index, &merge_op);
                     universe
-                        .send_message(
-                            &merge_planner_mailbox,
-                            MergePlannerMessage { new_splits: splits },
-                        )
+                        .send_message(&merge_planner_mailbox, NewSplits { new_splits: splits })
                         .await?;
                 }
             }

@@ -29,7 +29,7 @@ use tracing::info;
 
 use crate::actors::uploader::MAX_CONCURRENT_SPLIT_UPLOAD;
 use crate::actors::{GarbageCollector, MergePlanner};
-use crate::models::{MergePlannerMessage, PublishOperation, PublisherMessage};
+use crate::models::{NewSplits, PublishOperation, PublisherMessage};
 
 #[derive(Debug, Clone, Default)]
 pub struct PublisherCounters {
@@ -215,10 +215,7 @@ impl Handler<Receiver<PublisherMessage>> for Publisher {
         // has been packaged, the packager finalizer sends a message to the merge
         // planner in order to stop it.
         let _ = ctx
-            .send_message(
-                &self.merge_planner_mailbox,
-                MergePlannerMessage { new_splits },
-            )
+            .send_message(&self.merge_planner_mailbox, NewSplits { new_splits })
             .await;
         self.counters.num_published_splits += 1;
         fail_point!("publisher:after");
@@ -358,9 +355,7 @@ mod tests {
         assert_eq!(publisher_observation.num_published_splits, 1);
         let merge_planner_msgs = merge_planner_inbox.drain_for_test();
         assert_eq!(merge_planner_msgs.len(), 1);
-        let merge_planner_msg = merge_planner_msgs[0]
-            .downcast_ref::<MergePlannerMessage>()
-            .unwrap();
+        let merge_planner_msg = merge_planner_msgs[0].downcast_ref::<NewSplits>().unwrap();
         assert_eq!(merge_planner_msg.new_splits.len(), 1);
     }
 }

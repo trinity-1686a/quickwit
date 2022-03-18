@@ -89,9 +89,7 @@ where
     }
 }
 
-pub(crate) fn wrap_in_envelope<A, M>(
-    msg: M,
-) -> (Box<dyn Envelope<A>>, oneshot::Receiver<A::Reply>)
+pub(crate) fn wrap_in_envelope<A, M>(msg: M) -> (Box<dyn Envelope<A>>, oneshot::Receiver<A::Reply>)
 where
     A: Handler<M>,
     M: 'static + Send + Sync + fmt::Debug,

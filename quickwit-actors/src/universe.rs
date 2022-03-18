@@ -24,7 +24,7 @@ use tokio::sync::oneshot;
 
 use crate::channel_with_priority::Priority;
 use crate::mailbox::{Command, CommandOrMessage};
-use crate::scheduler::{SchedulerMessage, TimeShift};
+use crate::scheduler::{SimulateAdvanceTime, TimeShift};
 use crate::spawn_builder::SpawnBuilder;
 use crate::{Actor, Handler, KillSwitch, Mailbox, QueueCapacity, Scheduler};
 
@@ -71,7 +71,7 @@ impl Universe {
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
         let _ = self
             .scheduler_mailbox
-            .send_message(SchedulerMessage::SimulateAdvanceTime {
+            .send_message(SimulateAdvanceTime {
                 time_shift: TimeShift::ByDuration(duration),
                 tx,
             })

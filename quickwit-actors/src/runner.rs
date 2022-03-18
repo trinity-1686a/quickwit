@@ -21,14 +21,13 @@ use std::future::Future;
 
 use anyhow::Context;
 use tokio::sync::watch;
-use tracing::{debug, Instrument, info, error};
+use tracing::{debug, error, info, Instrument};
 
 use crate::actor::process_command;
 use crate::actor_with_state_tx::ActorWithStateTx;
 use crate::join_handle::{JoinHandle, JoinOutcome};
-use crate::mailbox::{Inbox, CommandOrMessage};
-use crate::{Actor, ActorContext, ActorHandle, ActorExitStatus, RecvError};
-
+use crate::mailbox::{CommandOrMessage, Inbox};
+use crate::{Actor, ActorContext, ActorExitStatus, ActorHandle, RecvError};
 
 /// The `ActorRunner` defines the environment in which an actor
 /// should be executed.
@@ -76,22 +75,18 @@ impl ActorRunner {
 
     fn spawn_named_task(
         &self,
-        task: impl Future<Output=()> + Send + 'static,
+        task: impl Future<Output = ()> + Send + 'static,
         name: &str,
     ) -> JoinHandle {
         match *self {
-            ActorRunner::GlobalRuntime => {
-                tokio_task_runtime_spawn_named(task, name)
-            },
-            ActorRunner::DedicatedThread => {
-                dedicated_runtime_spawn_named(task, name)
-            }
+            ActorRunner::GlobalRuntime => tokio_task_runtime_spawn_named(task, name),
+            ActorRunner::DedicatedThread => dedicated_runtime_spawn_named(task, name),
         }
     }
 }
 
 fn dedicated_runtime_spawn_named(
-    task: impl Future<Output=()> + Send + 'static,
+    task: impl Future<Output = ()> + Send + 'static,
     name: &str,
 ) -> JoinHandle {
     let (join_handle, sender) = JoinHandle::create_for_thread();
@@ -111,14 +106,18 @@ fn dedicated_runtime_spawn_named(
 
 #[allow(unused_variables)]
 fn tokio_task_runtime_spawn_named(
-    task: impl Future<Output=()> + Send + 'static,
+    task: impl Future<Output = ()> + Send + 'static,
     name: &str,
 ) -> JoinHandle {
     let tokio_task_join_handle = {
         #[cfg(tokio_unstable)]
-        { tokio::task::Builder::new().name(_name).spawn(task) }
+        {
+            tokio::task::Builder::new().name(_name).spawn(task)
+        }
         #[cfg(not(tokio_unstable))]
-        { tokio::spawn(task) }
+        {
+            tokio::spawn(task)
+        }
     };
     JoinHandle::create_for_task(tokio_task_join_handle)
 }
